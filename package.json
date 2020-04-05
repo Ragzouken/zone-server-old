@@ -1,0 +1,28 @@
+{
+  "name": "zone-server",
+  "version": "0.0.1",
+  "description": "A simple Node app built on Express, instantly up and running.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^7.2.3",
+    "node-fetch": "^2.6.0",
+    "node-html-parser": "^1.2.14",
+    "express": "^4.17.1",
+    "express-ws": "^4.0.0"
+  },
+  "engines": {
+    "node": "10.x"
+  },
+  "repository": {
+    "url": "https://glitch.com/edit/#!/zone-server"
+  },
+  "license": "MIT",
+  "keywords": [
+    "node",
+    "glitch",
+    "express"
+  ]
+}
