@@ -18,9 +18,7 @@ const copy = object => JSON.parse(JSON.stringify(object));
   });
 
   // this zone's websocket endpoint
-  app.ws("/zone", (websocket, req) => {
-    const userId = createUser(websocket);
-  });
+  app.ws("/zone", (websocket, req) => createUser(websocket));
 
   app.listen(process.env.PORT || 8080);
 
@@ -63,7 +61,7 @@ function createUser(websocket) {
 
   messaging.setHandler("youtube", message => {
     const { videoId } = message;
-    playback.queueVideoById(videoId);
+    playback.queueVideoById(videoId, { userId });
   });
 
   messaging.setHandler("search", message => {
@@ -74,7 +72,7 @@ function createUser(websocket) {
   });
 
   messaging.setHandler("skip", message => {
-    if (message.password === process.env.SECRET) playback.skip();
+    if (message.password === process.env.SECRET || "") playback.skip();
   });
   
   messaging.setHandler("avatar", message => {

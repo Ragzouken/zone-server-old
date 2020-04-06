@@ -14,8 +14,9 @@ class Playback extends EventEmitter {
     this.queue = [];
   }
 
-  async queueVideoById(videoId) {
+  async queueVideoById(videoId, meta) {
     const details = await youtube.details(videoId);
+    details.meta = meta;
     this.queue.push(details);
     this.emit('queue', details);
     this.check();
