@@ -31,7 +31,7 @@ function timeToSeconds(time) {
   const minutes = parseInt(parts.pop() || 0);
   const hours = parseInt(parts.pop() || 0);
 
-  return seconds + minutes * 60 + hours * 360;
+  return seconds + minutes * 60 + hours * 3600;
 }
 
 async function search(query, retries=1) {
