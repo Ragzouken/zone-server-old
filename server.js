@@ -125,6 +125,7 @@ function createUser(websocket) {
   });
 
   sendOnly("assign", { userId }, userId);
+  usernames.forEach((name, user) => sendOnly("name", { userId: user, name }, userId));
   sendOnly('queue', { videos: playback.queue }, userId);
   
   if (playback.currentVideo) {
@@ -132,10 +133,6 @@ function createUser(websocket) {
     video.time = playback.currentTime;
     sendOnly("youtube", video, userId);
   }
-
-  usernames.forEach((name, user) => {
-    sendOnly("name", { userId: user, name }, userId);
-  });
 
   avatars.forEach((avatar, user) => {
     sendOnly('move', { userId: user, position: avatar.position }, userId);
