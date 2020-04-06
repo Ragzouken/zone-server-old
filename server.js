@@ -22,7 +22,7 @@ const copy = object => JSON.parse(JSON.stringify(object));
     const userId = createUser(websocket);
   });
 
-  app.listen(process.env.PORT);
+  app.listen(process.env.PORT || 8080);
 
 let lastUserId = 0;
 const connections = new Map();
