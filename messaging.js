@@ -18,7 +18,11 @@ class WebSocketMessaging {
     if (!this.websocket) return;
     message.type = type;
     const json = JSON.stringify(message);
-    this.websocket.send(json);
+    try {
+        this.websocket.send(json);
+    } catch (e) {
+        console.log("couldn't send:", e);
+    }
   }
 
   setHandler(type, handler) {
