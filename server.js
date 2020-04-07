@@ -125,7 +125,7 @@ function createUser(websocket) {
   });
 
   sendOnly("assign", { userId }, userId);
-  usernames.forEach((name, user) => sendOnly("name", { userId: user, name }, userId));
+  sendOnly('users', { names: Array.from(usernames) }, userId);
   sendOnly('queue', { videos: playback.queue }, userId);
   
   if (playback.currentVideo) {
