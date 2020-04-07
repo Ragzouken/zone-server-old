@@ -84,7 +84,7 @@ function createUser(websocket) {
   });
   
   messaging.setHandler("error", message => {
-    if (message.videoId !== playback.currentVideo.videoId)
+    if (!playback.currentVideo || message.videoId !== playback.currentVideo.videoId)
       return;
     if (!usernames.get(userId))
       return;
