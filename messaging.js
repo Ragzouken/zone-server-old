@@ -35,8 +35,15 @@ class WebSocketMessaging {
 
     console.log(`<-- ${json}`);
 
-    if (handler) handler(message);
-    else console.log(`NO HANDLER FOR MESSAGE TYPE ${message.type}`);
+    if (handler) {
+        try {
+            handler(message);
+        } catch (e) {
+            console.log('EXCEPTION HANDLING MESSAGE', message, e);
+        }
+    } else {
+        console.log(`NO HANDLER FOR MESSAGE TYPE ${message.type}`);
+    }
   }
 }
 
