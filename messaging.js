@@ -33,8 +33,6 @@ class WebSocketMessaging {
     const message = JSON.parse(json);
     const handler = this.handlers.get(message.type);
 
-    console.log(`<-- ${json}`);
-
     if (handler) {
         try {
             handler(message);

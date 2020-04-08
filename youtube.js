@@ -14,13 +14,14 @@ class Youtube {
   }
   
   async details(videoId) {
-    const details = this.cache.get(videoId) || (await this.search(`"v=${videoId}"`))[0];
-    this.cache.set(videoId, details);
+    if (!this.cache.has(videoId))
+        await this.search(`"v=${videoId}"`);
+    if (!this.cache.has(videoId))
+        await this.search(await getTitleDirect(videoId));
+    if (!this.cache.has(videoId))
+        throw new Error(`Couldn't determine details of ${videoId}`);
     
-    if (details.videoId !== videoId)
-      console.log("HUH", videoId, details);
-    
-    return details;
+    return this.cache.get(videoId);
   }
 }
 
@@ -32,6 +33,15 @@ function timeToSeconds(time) {
   const hours = parseInt(parts.pop() || 0);
 
   return seconds + minutes * 60 + hours * 3600;
+}
+
+async function getTitleDirect(videoId) {
+    const result = await fetch(`https://www.youtube.com/watch?v=${videoId}`);
+    const text = await result.text();
+    const dom = HTMLParser.parse(text);
+
+    const title = dom.querySelectorAll('meta').filter(element => element.getAttribute('property') === 'og:title')[0];
+    return title.getAttribute('content');
 }
 
 async function search(query, retries=1) {
