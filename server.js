@@ -68,7 +68,7 @@ function createUser(websocket) {
     const { query } = message;
     youtube.search(query).then(results => {
       if (message.lucky)
-        playback.queueVideoById(results[0].videoId);
+        playback.queueVideoById(results[0].videoId, { userId });
       else
         sendOnly("search", { query, results }, userId);
     });
