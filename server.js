@@ -67,7 +67,10 @@ function createUser(websocket) {
   messaging.setHandler("search", message => {
     const { query } = message;
     youtube.search(query).then(results => {
-      sendOnly("search", { query, results }, userId);
+      if (query.lucky)
+        playback.queueVideoById(results[0].videoId);
+      else
+        sendOnly("search", { query, results }, userId);
     });
   });
 
