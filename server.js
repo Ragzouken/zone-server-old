@@ -40,7 +40,7 @@ function createUser(websocket) {
 
   const messaging = new Messaging(websocket);
 
-  messaging.setHandler("heartbeat", message => sendOnly("heartbeat", {}, userId));
+  messaging.setHandler("heartbeat", message => websocket.ping());
   
   messaging.setHandler("chat", message => {
     const { text } = message;
