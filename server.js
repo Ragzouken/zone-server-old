@@ -1,6 +1,5 @@
-const EventEmitter = require("events");
-const WebSocket = require("ws");
 const express = require("express");
+const { exec } = require("child_process");
 
 const youtube = require('./youtube');
 const Playback = require('./playback');
@@ -94,6 +93,7 @@ function createUser(websocket) {
     const { master_key } = message;
     if (master_key === process.env.MASTER_KEY) {
       sendAll('status', { text: 'rebooting server' });
+      exec("git pull && refresh");
     }
   });
 
