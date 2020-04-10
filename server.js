@@ -17,7 +17,11 @@ const copy = object => JSON.parse(JSON.stringify(object));
   });
 
   // this zone's websocket endpoint
-  app.ws("/zone", (websocket, req) => createUser(websocket));
+  app.ws("/zone", (websocket, req) => {
+      const userId = createUser(websocket);      
+    const ip = req.headers['x-forwarded-for'].split(/\s*,\s*/)[0];
+    console.log("new user", userId, ip);
+  });
 
   app.listen(process.env.PORT || 8080);
 
@@ -39,7 +43,6 @@ const chatLengthLimit = 160;
 
 function createUser(websocket) {
   const userId = ++lastUserId;
-  console.log("new user", userId, websocket)
 
   const messaging = new Messaging(websocket);
 
