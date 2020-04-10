@@ -39,10 +39,14 @@ const chatLengthLimit = 160;
 
 function createUser(websocket) {
   const userId = ++lastUserId;
+  console.log("new user", userId, websocket)
 
   const messaging = new Messaging(websocket);
 
-  messaging.setHandler("heartbeat", message => websocket.ping());
+  messaging.setHandler("heartbeat", message => {
+      websocket.ping();
+      sendOnly("heartbeat", {}, userId);
+  });
   
   messaging.setHandler("chat", message => {
     let { text } = message;
@@ -95,7 +99,7 @@ function createUser(websocket) {
       sendAll('status', { text: 'rebooting server' });
       app.close();
       connections.forEach(messaging => messaging.disconnect());
-      exec("git pull && refresh");
+      exec("git pull", () => process.exit());
     }
   });
 
