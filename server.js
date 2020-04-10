@@ -100,9 +100,7 @@ function createUser(websocket) {
     const { master_key } = message;
     if (master_key === process.env.MASTER_KEY) {
       sendAll('status', { text: 'rebooting server' });
-      server.close();
-      connections.forEach(messaging => messaging.disconnect());
-      exec("git pull", () => process.exit());
+      exec("git pull && refresh");
     }
   });
 
