@@ -23,7 +23,7 @@ const copy = object => JSON.parse(JSON.stringify(object));
     console.log("new user", userId, ip);
   });
 
-  app.listen(process.env.PORT || 8080);
+const server = app.listen(process.env.PORT || 8080);
 
 let lastUserId = 0;
 const connections = new Map();
@@ -100,7 +100,7 @@ function createUser(websocket) {
     const { master_key } = message;
     if (master_key === process.env.MASTER_KEY) {
       sendAll('status', { text: 'rebooting server' });
-      app.close();
+      server.close();
       connections.forEach(messaging => messaging.disconnect());
       exec("git pull", () => process.exit());
     }
