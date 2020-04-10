@@ -35,6 +35,9 @@ playback.on('stop', details => sendAll('youtube', {}))
 let errors = 0;
 playback.on('play', details => errors = 0);
 
+const nameLengthLimit = 16;
+const chatLengthLimit = 160;
+
 function createUser(websocket) {
   const userId = ++lastUserId;
 
@@ -43,13 +46,14 @@ function createUser(websocket) {
   messaging.setHandler("heartbeat", message => websocket.ping());
   
   messaging.setHandler("chat", message => {
-    const { text } = message;
+    let { text } = message;
+    text = text.substring(0, chatLengthLimit);
     sendAll("chat", { text, userId });
   });
 
   messaging.setHandler("name", message => { 
-    const { name } = message;
-    
+    let { name } = message;
+    name = name.substring(0, nameLengthLimit);
     if (!usernames.has(userId)) {
       avatars.set(userId, { position: [8, 15] });
       sendAll('move', { userId, position: [8, 15] });
