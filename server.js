@@ -90,6 +90,13 @@ function createUser(websocket) {
     sendAll('avatar', { data, userId });
   });
   
+  messaging.setHandler('reboot', message => {
+    const { master_key } = message;
+    if (master_key === process.env.MASTER_KEY) {
+      sendAll('status', { text: 'rebooting server' });
+    }
+  });
+
   messaging.setHandler("error", message => {
     if (!playback.currentVideo || message.videoId !== playback.currentVideo.videoId)
       return;
