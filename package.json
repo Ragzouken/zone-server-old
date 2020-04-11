@@ -1,28 +1,52 @@
 {
   "name": "zone-server",
   "version": "0.0.1",
-  "description": "A simple Node app built on Express, instantly up and running.",
-  "main": "server.js",
+  "description": "a server for zones",
+  "main": "lib/server.js",
+  "types": "lib/server.d.ts",
   "scripts": {
-    "start": "node server.js"
-  },
-  "dependencies": {
-    "ws": "^7.2.3",
-    "node-fetch": "^2.6.0",
-    "node-html-parser": "^1.2.14",
-    "express": "^4.17.1",
-    "express-ws": "^4.0.0"
+    "prestart": "npm run build",
+    "start": "node lib/server.js",
+    "test": "jest --config jestconfig.json",
+    "build": "tsc",
+    "format": "prettier --write \"src/**/*.ts\" \"src/**/*.js\"",
+    "lint": "tslint -p tsconfig.json",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm test && npm run lint",
+    "preversion": "npm test && npm run lint",
+    "version": "npm run format && git add -A src",
+    "postversion": "git push && git push --tags"
   },
   "engines": {
     "node": "10.x"
   },
   "repository": {
-    "url": "https://glitch.com/edit/#!/zone-server"
+    "type": "git",
+    "url": "git+https://github.com/Ragzouken/zone-server.git"
   },
   "license": "MIT",
   "keywords": [
     "node",
     "glitch",
-    "express"
-  ]
+    "express",
+    "zone"
+  ],
+  "dependencies": {
+    "express": "^4.17.1",
+    "express-ws": "^4.0.0",
+    "node-fetch": "^2.6.0",
+    "node-html-parser": "^1.2.14"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.6",
+    "@types/express-ws": "^3.0.0",
+    "@types/jest": "^25.2.1",
+    "@types/node": "^13.11.1",
+    "@types/node-fetch": "^2.5.6",
+    "jest": "^25.3.0",
+    "prettier": "^2.0.4",
+    "tslint": "^6.1.1",
+    "tslint-config-prettier": "^1.18.0",
+    "typescript": "^3.8.3"
+  }
 }
