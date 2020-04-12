@@ -51,7 +51,6 @@ export function timeToSeconds(time: string): number {
 }
 
 export async function fetchDom(url: string): Promise<HTMLParser.HTMLElement> {
-    console.log(`fetch DOM for ${url}`);
     const address = encodeURI(url);
     const response = await fetch(address);
     const html = await response.text();
