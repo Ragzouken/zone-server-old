@@ -21,7 +21,8 @@ export class Youtube {
     public async details(videoId: string): Promise<YoutubeVideo> {
         let details: YoutubeVideo | undefined;
         for (const strategy of SEARCH_STRATEGIES) {
-            await strategy(videoId);
+            const query = await strategy(videoId);
+            await this.search(query);
             details = this.cache.get(videoId);
             if (details) break;
         }
