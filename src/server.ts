@@ -3,11 +3,10 @@ import * as expressWs from 'express-ws';
 import * as WebSocket from 'ws';
 import { exec } from 'child_process';
 
+import { copy } from './utility';
 import youtube, { YoutubeVideo } from './youtube';
 import Playback from './playback';
 import Messaging from './messaging';
-
-const copy = (object: any) => JSON.parse(JSON.stringify(object));
 
 const xws = expressWs(express());
 const app = xws.app;

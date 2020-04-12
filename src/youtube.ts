@@ -1,5 +1,4 @@
-import fetch from 'node-fetch';
-import * as HTMLParser from 'node-html-parser';
+import { fetchDom, timeToSeconds } from './utility';
 
 export type YoutubeVideo = {
     videoId: string;
@@ -39,23 +38,6 @@ const SEARCH_STRATEGIES: SearchStrategy[] = [
     async (videoId) => `"v=${videoId}"`,
     async (videoId) => `"${await getTitleDirect(videoId)}"`,
 ];
-
-export function timeToSeconds(time: string): number {
-    const parts = time.split(':');
-
-    const seconds = parseInt(parts.pop() || '0', 10);
-    const minutes = parseInt(parts.pop() || '0', 10);
-    const hours = parseInt(parts.pop() || '0', 10);
-
-    return seconds + minutes * 60 + hours * 3600;
-}
-
-export async function fetchDom(url: string): Promise<HTMLParser.HTMLElement> {
-    const address = encodeURI(url);
-    const response = await fetch(address);
-    const html = await response.text();
-    return HTMLParser.parse(html) as HTMLParser.HTMLElement;
-}
 
 export async function getTitleDirect(videoId: string) {
     const dom = await fetchDom(`https://www.youtube.com/watch?v=${videoId}`);

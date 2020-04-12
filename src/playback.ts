@@ -1,10 +1,7 @@
 import { EventEmitter } from 'events';
 import { performance } from 'perf_hooks';
+import { copy } from './utility';
 import youtube, { YoutubeVideo } from './youtube';
-
-function copy<T>(object: T) {
-    return JSON.parse(JSON.stringify(object));
-}
 
 export default class Playback extends EventEmitter {
     public currentVideo: YoutubeVideo | undefined = undefined;
