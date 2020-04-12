@@ -39,7 +39,7 @@ const SEARCH_STRATEGIES: SearchStrategy[] = [
     async (videoId) => `"${await getTitleDirect(videoId)}"`,
 ];
 
-function timeToSeconds(time: string): number {
+export function timeToSeconds(time: string): number {
     const parts = time.split(':');
 
     const seconds = parseInt(parts.pop() || '0', 10);
@@ -49,7 +49,7 @@ function timeToSeconds(time: string): number {
     return seconds + minutes * 60 + hours * 3600;
 }
 
-async function fetchDom(url: string): Promise<HTMLParser.HTMLElement> {
+export async function fetchDom(url: string): Promise<HTMLParser.HTMLElement> {
     console.log(`fetch DOM for ${url}`);
     const address = encodeURI(url);
     const response = await fetch(address);
@@ -57,13 +57,13 @@ async function fetchDom(url: string): Promise<HTMLParser.HTMLElement> {
     return HTMLParser.parse(html) as HTMLParser.HTMLElement;
 }
 
-async function getTitleDirect(videoId: string) {
+export async function getTitleDirect(videoId: string) {
     const dom = await fetchDom(`https://www.youtube.com/watch?v=${videoId}`);
     const title = dom.querySelectorAll('meta').filter((element) => element.getAttribute('property') === 'og:title')[0];
     return title.getAttribute('content');
 }
 
-async function search(query: string): Promise<YoutubeVideo[]> {
+export async function search(query: string): Promise<YoutubeVideo[]> {
     const dom = await fetchDom(`https://www.youtube.com/results?search_query=${query}`);
     const results: YoutubeVideo[] = [];
     const videos = dom.querySelectorAll('.yt-lockup-dismissable');
