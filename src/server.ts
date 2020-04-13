@@ -1,6 +1,8 @@
 import * as express from 'express';
 import * as expressWs from 'express-ws';
 import * as WebSocket from 'ws';
+import * as FileSync from 'lowdb/adapters/FileSync';
+import * as low from 'lowdb';
 import { exec } from 'child_process';
 
 import { copy } from './utility';
@@ -10,6 +12,12 @@ import Messaging from './messaging';
 
 const xws = expressWs(express());
 const app = xws.app;
+
+const adapter = new FileSync('.data/db.json');
+const db = low(adapter);
+db.defaults({
+    'playback': { current: undefined, queue: [], time: 0 },
+}).write();
 
 // if someone tries to load the page, redirect to the client and tell it this zone's websocket endpoint
 app.get('/', (request, response) => {
@@ -33,15 +41,32 @@ const playback = new Playback();
 const usernames = new Map<UserId, string>();
 const avatars = new Map<UserId, any>();
 
+const state = db.get('playback').value();
+playback.queueVideoById(state.current.videoId, state.current.meta);
+state.queue.forEach((video: YoutubeVideo) => playback.queueVideoById(video.videoId, video.meta));
+
 playback.on('queue', (details: YoutubeVideo) => sendAll('queue', { videos: [details] }));
 playback.on('play', (details: YoutubeVideo) => sendAll('youtube', details));
 playback.on('stop', () => sendAll('youtube', {}));
+
+playback.on('queue', save);
+playback.on('play', save);
 
 let errors = 0;
 playback.on('play', (details: YoutubeVideo) => (errors = 0));
 
 const nameLengthLimit = 16;
 const chatLengthLimit = 160;
+
+setInterval(save, 30 * 1000);
+
+function save() {
+    const current = playback.currentVideo;
+    const queue = playback.queue;
+    const time = playback.currentTime;
+
+    db.set('playback', { current, queue, time }).write();
+}
 
 function createUser(websocket: WebSocket) {
     const userId = ++lastUserId as UserId;
