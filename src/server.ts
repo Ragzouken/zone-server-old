@@ -42,7 +42,8 @@ const usernames = new Map<UserId, string>();
 const avatars = new Map<UserId, any>();
 
 const state = db.get('playback').value();
-playback.queueVideoById(state.current.videoId, state.current.meta);
+if (state.current)
+    playback.queueVideoById(state.current.videoId, state.current.meta);
 state.queue.forEach((video: YoutubeVideo) => playback.queueVideoById(video.videoId, video.meta));
 
 playback.on('queue', (details: YoutubeVideo) => sendAll('queue', { videos: [details] }));
