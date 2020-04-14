@@ -41,7 +41,7 @@ const playback = new Playback();
 const usernames = new Map<UserId, string>();
 const avatars = new Map<UserId, any>();
 
-playback.fromData(db.get('playback').value());
+playback.loadState(db.get('playback').value());
 
 playback.on('queue', (details: YoutubeVideo) => sendAll('queue', { videos: [details] }));
 playback.on('play', (details: YoutubeVideo) => sendAll('youtube', details));
@@ -60,7 +60,7 @@ const tileLengthLimit = 12;
 setInterval(save, 30 * 1000);
 
 function save() {
-    db.set('playback', playback.toData()).write();
+    db.set('playback', playback.copyState()).write();
 }
 
 function createUser(websocket: WebSocket) {
@@ -120,6 +120,7 @@ function createUser(websocket: WebSocket) {
     messaging.setHandler('reboot', (message: any) => {
         const { master_key } = message;
         if (master_key === process.env.MASTER_KEY) {
+            save();
             sendAll('status', { text: 'rebooting server' });
             exec('git pull && refresh');
         }
