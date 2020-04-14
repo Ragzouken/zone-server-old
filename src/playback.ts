@@ -3,6 +3,12 @@ import { performance } from 'perf_hooks';
 import { copy } from './utility';
 import youtube, { YoutubeVideo } from './youtube';
 
+export type PlaybackState = {
+    current: YoutubeVideo | undefined,
+    queue: YoutubeVideo[],
+    time: number,
+};
+
 export default class Playback extends EventEmitter {
     public currentVideo: YoutubeVideo | undefined = undefined;
     public queue: YoutubeVideo[] = [];
@@ -15,12 +21,30 @@ export default class Playback extends EventEmitter {
         this.clearVideo();
     }
 
-    async queueVideoById(videoId: string, meta: unknown) {
+    copyState(): PlaybackState {
+        return {
+            current: this.currentVideo,
+            queue: this.queue,
+            time: this.currentTime,
+        }
+    }
+
+    loadState(data: PlaybackState) {
+        this.currentVideo = data.current;
+        this.currentBeginTime = performance.now() - data.time;
+        data.queue.forEach(video => this.queueYoutube(video));
+    }
+
+    async queueYoutube(video: YoutubeVideo) {
+        this.queue.push(video);
+        this.emit('queue', video);
+        this.check();
+    }
+
+    async queueYoutubeById(videoId: string, meta: unknown) {
         const details = await youtube.details(videoId);
         details.meta = meta;
-        this.queue.push(details);
-        this.emit('queue', details);
-        this.check();
+        this.queueYoutube(details);
     }
 
     get idle() {
@@ -31,7 +55,13 @@ export default class Playback extends EventEmitter {
         return performance.now() - this.currentBeginTime;
     }
 
-    playVideo(video: YoutubeVideo) {
+    skip() {
+        const next = this.queue.shift();
+        if (next) this.playVideo(next);
+        else this.clearVideo();
+    }
+
+    private playVideo(video: YoutubeVideo) {
         this.currentBeginTime = performance.now();
         this.currentEndTime = this.currentBeginTime + video.duration * 1000;
         this.currentVideo = video;
@@ -41,14 +71,14 @@ export default class Playback extends EventEmitter {
         setTimeout(() => this.check(), (video.duration + 1) * 1000);
     }
 
-    clearVideo() {
+    private clearVideo() {
         if (this.currentVideo) this.emit('stop');
         this.currentBeginTime = performance.now();
         this.currentEndTime = performance.now();
         this.currentVideo = undefined;
     }
 
-    check() {
+    private check() {
         if (!this.idle) return;
 
         const next = this.queue.shift();
@@ -58,11 +88,5 @@ export default class Playback extends EventEmitter {
             setTimeout(() => this.check(), 3 * 1000);
             this.clearVideo();
         }
-    }
-
-    skip() {
-        const next = this.queue.shift();
-        if (next) this.playVideo(next);
-        else this.clearVideo();
     }
 }

@@ -41,10 +41,7 @@ const playback = new Playback();
 const usernames = new Map<UserId, string>();
 const avatars = new Map<UserId, any>();
 
-const state = db.get('playback').value();
-if (state.current)
-    playback.queueVideoById(state.current.videoId, state.current.meta);
-state.queue.forEach((video: YoutubeVideo) => playback.queueVideoById(video.videoId, video.meta));
+playback.fromData(db.get('playback').value());
 
 playback.on('queue', (details: YoutubeVideo) => sendAll('queue', { videos: [details] }));
 playback.on('play', (details: YoutubeVideo) => sendAll('youtube', details));
@@ -58,15 +55,12 @@ playback.on('play', (details: YoutubeVideo) => (errors = 0));
 
 const nameLengthLimit = 16;
 const chatLengthLimit = 160;
+const tileLengthLimit = 12;
 
 setInterval(save, 30 * 1000);
 
 function save() {
-    const current = playback.currentVideo;
-    const queue = playback.queue;
-    const time = playback.currentTime;
-
-    db.set('playback', { current, queue, time }).write();
+    db.set('playback', playback.toData()).write();
 }
 
 function createUser(websocket: WebSocket) {
@@ -99,13 +93,13 @@ function createUser(websocket: WebSocket) {
 
     messaging.setHandler('youtube', (message: any) => {
         const { videoId } = message;
-        playback.queueVideoById(videoId, { userId });
+        playback.queueYoutubeById(videoId, { userId });
     });
 
     messaging.setHandler('search', (message: any) => {
         const { query } = message;
         youtube.search(query).then((results) => {
-            if (message.lucky) playback.queueVideoById(results[0].videoId, { userId });
+            if (message.lucky) playback.queueYoutubeById(results[0].videoId, { userId });
             else sendOnly('search', { query, results }, userId);
         });
     });
@@ -118,6 +112,7 @@ function createUser(websocket: WebSocket) {
         const avatar = avatars.get(userId);
         if (!avatar) return;
         const { data } = message;
+        if (data.length > tileLengthLimit) return;
         avatar.data = data;
         sendAll('avatar', { data, userId });
     });
