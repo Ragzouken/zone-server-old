@@ -4,9 +4,9 @@ import { copy } from './utility';
 import youtube, { YoutubeVideo } from './youtube';
 
 export type PlaybackState = {
-    current: YoutubeVideo | undefined,
-    queue: YoutubeVideo[],
-    time: number,
+    current: YoutubeVideo | undefined;
+    queue: YoutubeVideo[];
+    time: number;
 };
 
 export default class Playback extends EventEmitter {
@@ -26,16 +26,15 @@ export default class Playback extends EventEmitter {
             current: this.currentVideo,
             queue: this.queue,
             time: this.currentTime,
-        }
+        };
     }
 
     loadState(data: PlaybackState) {
         if (data.current) {
+            this.setTime(data.current.duration, data.time);
             this.currentVideo = data.current;
-            this.currentBeginTime = performance.now() - data.time;
-            this.currentEndTime = this.currentBeginTime + data.current.duration * 1000;
         }
-        data.queue.forEach(video => this.queueYoutube(video));
+        data.queue.forEach((video) => this.queueYoutube(video));
     }
 
     async queueYoutube(video: YoutubeVideo) {
@@ -65,8 +64,7 @@ export default class Playback extends EventEmitter {
     }
 
     private playVideo(video: YoutubeVideo) {
-        this.currentBeginTime = performance.now();
-        this.currentEndTime = this.currentBeginTime + video.duration * 1000;
+        this.setTime(video.duration);
         this.currentVideo = video;
         const message = copy(video);
         message.time = 0;
@@ -76,8 +74,7 @@ export default class Playback extends EventEmitter {
 
     private clearVideo() {
         if (this.currentVideo) this.emit('stop');
-        this.currentBeginTime = performance.now();
-        this.currentEndTime = performance.now();
+        this.setTime(0);
         this.currentVideo = undefined;
     }
 
@@ -88,8 +85,12 @@ export default class Playback extends EventEmitter {
         if (next) {
             this.playVideo(next);
         } else {
-            setTimeout(() => this.check(), 3 * 1000);
             this.clearVideo();
         }
+    }
+
+    private setTime(duration: number, time = 0) {
+        this.currentBeginTime = performance.now() - time;
+        this.currentEndTime = this.currentBeginTime + duration * 1000;
     }
 }

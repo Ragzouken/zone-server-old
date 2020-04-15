@@ -1,6 +1,10 @@
 import fetch from 'node-fetch';
 import * as HTMLParser from 'node-html-parser';
 
+export function sleep(milliseconds: number) {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 export function copy<T>(object: T) {
     return JSON.parse(JSON.stringify(object));
 }

@@ -16,7 +16,7 @@ const app = xws.app;
 const adapter = new FileSync('.data/db.json');
 const db = low(adapter);
 db.defaults({
-    'playback': { current: undefined, queue: [], time: 0 },
+    playback: { current: undefined, queue: [], time: 0 },
 }).write();
 
 // if someone tries to load the page, redirect to the client and tell it this zone's websocket endpoint

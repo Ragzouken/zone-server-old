@@ -1,4 +1,5 @@
-import { timeToSeconds, copy } from '../utility';
+import { performance } from 'perf_hooks';
+import { timeToSeconds, copy, sleep } from '../utility';
 
 const TIMES: [string, number][] = [
     ['1:32:10', 5530],
@@ -12,6 +13,14 @@ const TIMES: [string, number][] = [
     [':', 0],
     ['::', 0],
 ];
+
+test('sleep', async () => {
+    const target = 1;
+    const begin = performance.now();
+    await sleep(target * 1000);
+    const duration = (performance.now() - begin) / 1000;
+    expect(duration).toBeCloseTo(target, 0);
+});
 
 test.each(TIMES)('timeToSeconds', async (time, seconds) => {
     expect(timeToSeconds(time)).toEqual(seconds);
