@@ -34,12 +34,18 @@ app.ws('/zone', (websocket, req) => {
 const server = app.listen(process.env.PORT || 8080, () => console.log('listening...'));
 
 type UserId = unknown;
+type Avatar = {
+    userId: UserId;
+    position: [number, number];
+    data?: string;
+    emotes?: string[];
+};
 
 let lastUserId = 0;
 const connections = new Map<UserId, any>();
 const playback = new Playback();
 const usernames = new Map<UserId, string>();
-const avatars = new Map<UserId, any>();
+const avatars = new Map<UserId, Avatar>();
 
 playback.loadState(db.get('playback').value());
 
@@ -50,8 +56,8 @@ playback.on('stop', () => sendAll('youtube', {}));
 playback.on('queue', save);
 playback.on('play', save);
 
-let errors = 0;
-playback.on('play', (details: YoutubeVideo) => (errors = 0));
+const errors = new Set<UserId>();
+playback.on('play', () => errors.clear());
 
 const nameLengthLimit = 16;
 const chatLengthLimit = 160;
@@ -82,11 +88,6 @@ function createUser(websocket: WebSocket) {
     messaging.setHandler('name', (message: any) => {
         let { name } = message;
         name = name.substring(0, nameLengthLimit);
-        if (!usernames.has(userId)) {
-            avatars.set(userId, { position: [8, 15] });
-            sendAll('move', { userId, position: [8, 15] });
-        }
-
         usernames.set(userId, name);
         sendAll('name', { name, userId });
     });
@@ -129,8 +130,8 @@ function createUser(websocket: WebSocket) {
     messaging.setHandler('error', (message: any) => {
         if (!playback.currentVideo || message.videoId !== playback.currentVideo.videoId) return;
         if (!usernames.get(userId)) return;
-        errors += 1;
-        if (errors >= usernames.size / 2) {
+        errors.add(userId);
+        if (errors.size > usernames.size / 2) {
             sendAll('status', {
                 text: `skipping unplayable video ${playback.currentVideo.title}`,
             });
@@ -139,10 +140,10 @@ function createUser(websocket: WebSocket) {
     });
 
     messaging.setHandler('move', (message: any) => {
-        const avatar = avatars.get(userId);
-        if (!avatar) return;
         const { position } = message;
+        const avatar = avatars.get(userId) || { userId, position };
         avatar.position = position;
+        avatars.set(userId, avatar);
         sendAll('move', { userId, position });
     });
 
