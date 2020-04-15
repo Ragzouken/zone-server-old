@@ -15,9 +15,11 @@
     "prepublishOnly": "npm test && npm run lint",
     "preversion": "npm test && npm run lint",
     "version": "npm run format && git add -A src",
-    "postversion": "git push && git push --tags"
+    "postversion": "git push && git push --tags",
+    "precommit-msg": "echo 'Pre-commit checks...' && exit 0"
   },
   "pre-commit": [
+    "precommit-msg",
     "prepublishOnly"
   ],
   "engines": {
