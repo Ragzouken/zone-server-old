@@ -5,7 +5,7 @@ export default class WebSocketMessaging {
 
     constructor(private websocket: WebSocket) {
         this.websocket.on('message', (message) => this.onMessage(message));
-        this.websocket.on('close', () => this.disconnect());
+        this.websocket.on('close', (code, reason) => console.log('websocket disonnect:', code, reason));
     }
 
     disconnect() {
