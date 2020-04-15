@@ -10,3 +10,8 @@ test.each(YOUTUBE_VIDEOS)('youtube.details', async ({ videoId, title, duration }
     details.thumbnail = undefined;
     expect(details).toEqual({ videoId, title, duration });
 });
+
+it('throws exception for unobtainable details', async () => {
+    const check = youtube.details('really fake video id');
+    await expect(check).rejects.toThrow(Error);
+});

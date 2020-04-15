@@ -20,10 +20,14 @@ export class Youtube {
     public async details(videoId: string): Promise<YoutubeVideo> {
         let details: YoutubeVideo | undefined;
         for (const strategy of SEARCH_STRATEGIES) {
-            const query = await strategy(videoId);
-            await this.search(query);
-            details = this.cache.get(videoId);
-            if (details) break;
+            try {
+                const query = await strategy(videoId);
+                await this.search(query);
+                details = this.cache.get(videoId);
+                if (details) break;
+            } catch (e) {
+                console.log(`strategy exception`, e);
+            }
         }
 
         if (!details) throw new Error(`Couldn't determine details of ${videoId}`);
