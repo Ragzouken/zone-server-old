@@ -56,8 +56,12 @@ playback.on('stop', () => sendAll('youtube', {}));
 playback.on('queue', save);
 playback.on('play', save);
 
+const skips = new Set<UserId>();
 const errors = new Set<UserId>();
-playback.on('play', () => errors.clear());
+playback.on('play', () => {
+    errors.clear();
+    skips.clear();
+});
 
 const nameLengthLimit = 16;
 const chatLengthLimit = 160;
@@ -106,7 +110,21 @@ function createUser(websocket: WebSocket) {
     });
 
     messaging.setHandler('skip', (message: any) => {
-        if (message.password === process.env.SECRET || '') playback.skip();
+        if (message.videoId !== playback.currentVideo?.videoId) return;
+        
+        if (message.password === process.env.SECRET || '') {
+            playback.skip();
+        } else {
+            skips.add(userId);
+            const current = skips.size;
+            const target = Math.ceil(usernames.size * .6);
+            if (current >= target) {
+                sendAll('status', { text: `voted to skip ${playback.currentVideo?.title}` });
+                playback.skip();
+            } else {
+                sendAll('status', { text: `${current} of ${target} votes to skip` });
+            }
+        }
     });
 
     messaging.setHandler('avatar', (message: any) => {
