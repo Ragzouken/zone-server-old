@@ -33,6 +33,9 @@ export default class Playback extends EventEmitter {
         if (data.current) {
             this.setTime(data.current.duration, data.time);
             this.currentVideo = data.current;
+            // TODO: test for this
+            const remaining = this.currentEndTime - performance.now();
+            setTimeout(() => this.check(), remaining + 1000);
         }
         data.queue.forEach((video) => this.queueYoutube(video));
     }
