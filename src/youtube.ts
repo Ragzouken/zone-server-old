@@ -54,6 +54,8 @@ export async function search(query: string): Promise<YoutubeVideo[]> {
     const results: YoutubeVideo[] = [];
     const videos = dom.querySelectorAll('.yt-lockup-dismissable');
     videos.forEach((video) => {
+        console.log(video);
+
         const time = video.querySelector('.video-time');
         if (!time) return;
 

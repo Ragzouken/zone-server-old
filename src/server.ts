@@ -3,7 +3,8 @@ import * as expressWs from 'express-ws';
 import * as WebSocket from 'ws';
 import * as FileSync from 'lowdb/adapters/FileSync';
 import * as low from 'lowdb';
-import { exec } from 'child_process';
+import { exec } from 'child_process'
+import { nanoid } from 'nanoid';
 
 import { copy } from './utility';
 import youtube, { YoutubeVideo } from './youtube';
@@ -73,12 +74,12 @@ function save() {
     db.set('playback', playback.copyState()).write();
 }
 
-setInterval(ping, 30 * 1000);
+setInterval(ping, 20 * 1000);
 
 function ping() {
     xws.getWss().clients.forEach(websocket => {
-        try { 
-            websocket.ping(); 
+        try {
+            websocket.ping();
         } catch (e) {
             console.log("couldn't ping", e);
         }
@@ -86,7 +87,10 @@ function ping() {
 }
 
 function createUser(websocket: WebSocket) {
+    websocket.on('ping', data => console.log('pinged', data));
+
     const userId = ++lastUserId as UserId;
+    const token = nanoid();
 
     const messaging = new Messaging(websocket);
 
@@ -108,8 +112,13 @@ function createUser(websocket: WebSocket) {
     });
 
     messaging.setHandler('youtube', (message: any) => {
-        const { videoId } = message;
-        playback.queueYoutubeById(videoId, { userId });
+        if (message.video) {
+            message.video.meta = { userId };
+            playback.queueYoutube(message.video);
+        } else {
+            const { videoId } = message;
+            playback.queueYoutubeById(videoId, { userId });
+        }
     });
 
     messaging.setHandler('search', (message: any) => {
@@ -196,7 +205,7 @@ function createUser(websocket: WebSocket) {
         if (username) sendAll('status', { text: `${username} left`, userId: 0 });
     });
 
-    sendOnly('assign', { userId }, userId);
+    sendOnly('assign', { userId, token }, userId);
     sendOnly('users', { names: Array.from(usernames) }, userId);
     sendOnly('queue', { videos: playback.queue }, userId);
 
