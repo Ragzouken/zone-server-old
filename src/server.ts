@@ -42,7 +42,7 @@ type Avatar = {
 };
 
 let lastUserId = 0;
-const connections = new Map<UserId, any>();
+const connections = new Map<UserId, Messaging>();
 const playback = new Playback();
 const usernames = new Map<UserId, string>();
 const avatars = new Map<UserId, Avatar>();
@@ -73,13 +73,24 @@ function save() {
     db.set('playback', playback.copyState()).write();
 }
 
+setInterval(ping, 30 * 1000);
+
+function ping() {
+    xws.getWss().clients.forEach(websocket => {
+        try { 
+            websocket.ping(); 
+        } catch (e) {
+            console.log("couldn't ping", e);
+        }
+    });
+}
+
 function createUser(websocket: WebSocket) {
     const userId = ++lastUserId as UserId;
 
     const messaging = new Messaging(websocket);
 
     messaging.setHandler('heartbeat', () => {
-        websocket.ping();
         sendOnly('heartbeat', {}, userId);
     });
 
@@ -209,5 +220,5 @@ function sendAll(type: string, message: any) {
 }
 
 function sendOnly(type: string, message: any, userId: UserId) {
-    connections.get(userId).send(type, message);
+    connections.get(userId)!.send(type, message);
 }
