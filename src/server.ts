@@ -111,6 +111,12 @@ function createUser(websocket: WebSocket) {
         sendAll('name', { name, userId });
     });
 
+    messaging.setHandler('resync', () => {
+        const video = copy(playback.currentVideo);
+        video.time = playback.currentTime;
+        sendOnly('youtube', video, userId);
+    });
+    
     messaging.setHandler('youtube', (message: any) => {
         if (message.video) {
             message.video.meta = { userId };
