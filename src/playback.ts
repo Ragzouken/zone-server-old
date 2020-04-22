@@ -15,6 +15,7 @@ export default class Playback extends EventEmitter {
 
     private currentBeginTime: number = 0;
     private currentEndTime: number = 0;
+    private checkTimeout: NodeJS.Timeout | undefined;
 
     constructor() {
         super();
@@ -30,13 +31,8 @@ export default class Playback extends EventEmitter {
     }
 
     loadState(data: PlaybackState) {
-        if (data.current) {
-            this.setTime(data.current.duration, data.time);
-            this.currentVideo = data.current;
-            // TODO: test for this
-            const remaining = this.currentEndTime - performance.now();
-            setTimeout(() => this.check(), remaining + 1000);
-        }
+        if (data.current)
+            this.setVideo(data.current, data.time / 1000);
         data.queue.forEach((video) => this.queueYoutube(video));
     }
 
@@ -52,12 +48,16 @@ export default class Playback extends EventEmitter {
         this.queueYoutube(details);
     }
 
-    get idle() {
-        return performance.now() >= this.currentEndTime;
+    get playing() {
+        return this.remainingTime > 0;
     }
 
     get currentTime() {
         return performance.now() - this.currentBeginTime;
+    }
+
+    get remainingTime() {
+        return Math.max(0, this.currentEndTime - performance.now());
     }
 
     skip() {
@@ -67,12 +67,7 @@ export default class Playback extends EventEmitter {
     }
 
     private playVideo(video: YoutubeVideo) {
-        this.setTime(video.duration);
-        this.currentVideo = video;
-        const message = copy(video);
-        message.time = 0;
-        this.emit('play', message);
-        setTimeout(() => this.check(), (video.duration + 1) * 1000);
+        this.setVideo(video, 0);
     }
 
     private clearVideo() {
@@ -82,18 +77,23 @@ export default class Playback extends EventEmitter {
     }
 
     private check() {
-        if (!this.idle) return;
-
-        const next = this.queue.shift();
-        if (next) {
-            this.playVideo(next);
+        if (this.playing) {
+            if (this.checkTimeout) clearTimeout(this.checkTimeout);
+            this.checkTimeout = setTimeout(() => this.check(), this.remainingTime + 1000);
         } else {
-            this.clearVideo();
+            this.skip();
         }
+    }
+
+    private setVideo(video: YoutubeVideo, startSeconds = 0) {
+        this.currentVideo = video;
+        this.emit('play', copy(video));
+        this.setTime(video.duration * 1000, startSeconds * 1000);
     }
 
     private setTime(duration: number, time = 0) {
         this.currentBeginTime = performance.now() - time;
-        this.currentEndTime = this.currentBeginTime + duration * 1000;
+        this.currentEndTime = this.currentBeginTime + duration;
+        if (duration > 0) this.check();
     }
 }

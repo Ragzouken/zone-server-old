@@ -1,6 +1,11 @@
 import { sleep } from '../utility';
 import Playback from '../playback';
-import { YOUTUBE_VIDEOS, TINY_YOUTUBE_VIDEO } from './test-data';
+import { YOUTUBE_VIDEOS, TINY_YOUTUBE_VIDEO, DAY_YOUTUBE_VIDEO } from './test-data';
+import { YoutubeVideo } from '../youtube';
+
+function waitTime(video: YoutubeVideo) {
+    return (video.duration * 1000) * 2 + (1000);
+}
 
 it('plays the first item queued', () => {
     const playback = new Playback();
@@ -34,10 +39,10 @@ it('can copy empty state', () => {
 it('continues the queue when a video ends', async () => {
     const playback = new Playback();
     playback.queueYoutube(TINY_YOUTUBE_VIDEO);
-    YOUTUBE_VIDEOS.forEach((video) => playback.queueYoutube(video));
+    playback.queueYoutube(DAY_YOUTUBE_VIDEO);
     expect(playback.currentVideo).toBe(TINY_YOUTUBE_VIDEO);
-    await sleep(2000);
-    expect(playback.currentVideo).toBe(YOUTUBE_VIDEOS[0]);
+    await sleep(waitTime(TINY_YOUTUBE_VIDEO));
+    expect(playback.currentVideo).toBe(DAY_YOUTUBE_VIDEO);
 });
 
 it('stops when last video ends', async () => {
@@ -45,7 +50,7 @@ it('stops when last video ends', async () => {
     const onStop = jest.fn();
     playback.on('stop', onStop);
     playback.queueYoutube(TINY_YOUTUBE_VIDEO);
-    await sleep(2000);
+    await sleep(waitTime(TINY_YOUTUBE_VIDEO));
     expect(onStop.mock.calls.length).toBe(1);
 });
 
@@ -72,4 +77,14 @@ it('queues correct youtube by id', async () => {
     await playback.queueYoutubeById(YOUTUBE_VIDEOS[0].videoId, {});
     const { videoId, title, duration } = playback.currentVideo!;
     expect({ videoId, title, duration }).toEqual(YOUTUBE_VIDEOS[0]);
+});
+
+it('continues the queue when a video ends after loading state', async () => {
+    const playback = new Playback();
+    const other = new Playback();
+    playback.queueYoutube(TINY_YOUTUBE_VIDEO);
+    playback.queueYoutube(DAY_YOUTUBE_VIDEO);
+    other.loadState(playback.copyState());
+    await sleep(waitTime(TINY_YOUTUBE_VIDEO));
+    expect(other.currentVideo).toBe(DAY_YOUTUBE_VIDEO);
 });
