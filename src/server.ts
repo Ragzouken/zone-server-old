@@ -10,6 +10,7 @@ import { copy } from './utility';
 import youtube, { YoutubeVideo } from './youtube';
 import Playback from './playback';
 import Messaging from './messaging';
+import { ZoneState, UserId } from './zone';
 
 const xws = expressWs(express());
 const app = xws.app;
@@ -34,19 +35,10 @@ app.ws('/zone', (websocket, req) => {
 
 const server = app.listen(process.env.PORT || 8080, () => console.log('listening...'));
 
-type UserId = unknown;
-type Avatar = {
-    userId: UserId;
-    position: [number, number];
-    data?: string;
-    emotes?: string[];
-};
-
 let lastUserId = 0;
 const connections = new Map<UserId, Messaging>();
 const playback = new Playback();
-const usernames = new Map<UserId, string>();
-const avatars = new Map<UserId, Avatar>();
+const zone = new ZoneState();
 
 playback.loadState(db.get('playback').value());
 
@@ -89,49 +81,48 @@ function ping() {
 function createUser(websocket: WebSocket) {
     websocket.on('ping', data => console.log('pinged', data));
 
-    const userId = ++lastUserId as UserId;
+    const user = zone.getUser(++lastUserId as UserId);
     const token = nanoid();
 
     const messaging = new Messaging(websocket);
 
     messaging.setHandler('heartbeat', () => {
-        sendOnly('heartbeat', {}, userId);
+        sendOnly('heartbeat', {}, user.userId);
     });
 
     messaging.setHandler('chat', (message: any) => {
         let { text } = message;
         text = text.substring(0, chatLengthLimit);
-        sendAll('chat', { text, userId });
+        sendAll('chat', { text, userId: user.userId });
     });
 
     messaging.setHandler('name', (message: any) => {
-        let { name } = message;
-        name = name.substring(0, nameLengthLimit);
-        usernames.set(userId, name);
-        sendAll('name', { name, userId });
+        const { name } = message;
+        user.name = name.substring(0, nameLengthLimit);
+        sendAll('name', { name: user.name, userId: user.userId });
     });
 
     messaging.setHandler('resync', () => {
         const video = copy(playback.currentVideo);
         video.time = playback.currentTime;
-        sendOnly('youtube', video, userId);
+        sendOnly('youtube', video, user.userId);
     });
     
     messaging.setHandler('youtube', (message: any) => {
         if (message.video) {
-            message.video.meta = { userId };
+            message.video.meta = { userId: user.userId };
             playback.queueYoutube(message.video);
         } else {
             const { videoId } = message;
-            playback.queueYoutubeById(videoId, { userId });
+            playback.queueYoutubeById(videoId, { userId: user.userId });
         }
     });
 
     messaging.setHandler('search', (message: any) => {
         const { query } = message;
         youtube.search(query).then((results) => {
-            if (message.lucky) playback.queueYoutubeById(results[0].videoId, { userId });
-            else sendOnly('search', { query, results }, userId);
+            if (message.lucky) playback.queueYoutubeById(results[0].videoId, { userId: user.userId });
+            else sendOnly('search', { query, results }, user.userId);
         });
     });
 
@@ -141,9 +132,9 @@ function createUser(websocket: WebSocket) {
         if (message.password === process.env.SECRET || '') {
             playback.skip();
         } else {
-            skips.add(userId);
+            skips.add(user.userId);
             const current = skips.size;
-            const target = Math.ceil(usernames.size * .6);
+            const target = Math.ceil(zone.users.size * .6);
             if (current >= target) {
                 sendAll('status', { text: `voted to skip ${playback.currentVideo?.title}` });
                 playback.skip();
@@ -154,12 +145,10 @@ function createUser(websocket: WebSocket) {
     });
 
     messaging.setHandler('avatar', (message: any) => {
-        const avatar = avatars.get(userId);
-        if (!avatar) return;
         const { data } = message;
         if (data.length > tileLengthLimit) return;
-        avatar.data = data;
-        sendAll('avatar', { data, userId });
+        user.avatar = data;
+        sendAll('avatar', { data, userId: user.userId });
     });
 
     messaging.setHandler('reboot', (message: any) => {
@@ -173,9 +162,9 @@ function createUser(websocket: WebSocket) {
 
     messaging.setHandler('error', (message: any) => {
         if (!playback.currentVideo || message.videoId !== playback.currentVideo.videoId) return;
-        if (!usernames.get(userId)) return;
-        errors.add(userId);
-        if (errors.size > usernames.size / 2) {
+        if (!user.name) return;
+        errors.add(user.userId);
+        if (errors.size > zone.users.size / 2) {
             sendAll('status', {
                 text: `skipping unplayable video ${playback.currentVideo.title}`,
             });
@@ -185,49 +174,46 @@ function createUser(websocket: WebSocket) {
 
     messaging.setHandler('move', (message: any) => {
         const { position } = message;
-        const avatar = avatars.get(userId) || { userId, position };
-        avatar.position = position;
-        avatars.set(userId, avatar);
-        sendAll('move', { userId, position });
+        user.position = position;
+        sendAll('move', { userId: user.userId, position });
     });
 
     messaging.setHandler('emotes', (message: any) => {
-        const avatar = avatars.get(userId);
-        if (!avatar) return;
         const { emotes } = message;
-        avatar.emotes = emotes;
-        sendAll('emotes', { userId, emotes });
+        user.emotes = emotes;
+        sendAll('emotes', { userId: user.userId, emotes });
     });
 
-    connections.set(userId, messaging);
+    connections.set(user.userId, messaging);
     websocket.on('close', () => {
-        const username = usernames.get(userId);
-        connections.delete(userId);
-        usernames.delete(userId);
-        avatars.delete(userId);
+        zone.users.delete(user.userId);
+        connections.delete(user.userId);
+        sendAll('leave', { userId: user.userId });
 
-        sendAll('leave', { userId });
-
-        if (username) sendAll('status', { text: `${username} left`, userId: 0 });
+        if (user.name) 
+            sendAll('status', { text: `${user.name} left` });
     });
 
-    sendOnly('assign', { userId, token }, userId);
-    sendOnly('users', { names: Array.from(usernames) }, userId);
-    sendOnly('queue', { videos: playback.queue }, userId);
+    const users = Array.from(zone.users.values());
+    const names = users.map(u => [u.userId, u.name]);
+
+    sendOnly('assign', { userId: user.userId, token }, user.userId);
+    sendOnly('users', { names, users }, user.userId);
+    sendOnly('queue', { videos: playback.queue }, user.userId);
 
     if (playback.currentVideo) {
         const video = copy(playback.currentVideo);
         video.time = playback.currentTime;
-        sendOnly('youtube', video, userId);
+        sendOnly('youtube', video, user.userId);
     }
 
-    avatars.forEach((avatar, user) => {
-        sendOnly('move', { userId: user, position: avatar.position }, userId);
-        sendOnly('emotes', { userId: user, emotes: avatar.emotes }, userId);
-        sendOnly('avatar', { userId: user, data: avatar.data }, userId);
+    zone.users.forEach((user, userId) => {
+        if (user.position) sendOnly('move', { userId, position: user.position }, user.userId);
+        if (user.emotes) sendOnly('emotes', { userId, emotes: user.emotes }, user.userId);
+        if (user.avatar) sendOnly('avatar', { userId, data: user.avatar }, user.userId);
     });
 
-    return userId;
+    return user.userId;
 }
 
 function sendAll(type: string, message: any) {
