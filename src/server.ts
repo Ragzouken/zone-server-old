@@ -28,10 +28,18 @@ app.get('/', (request, response) => {
 
 // this zone's websocket endpoint
 app.ws('/zone', (websocket, req) => {
-    const userId = createUser(websocket);
-    const ip = (req.headers['x-forwarded-for'] as string).split(/\s*,\s*/)[0];
+    const ip = ipFromRequest(req);
+    const userId = createUser(websocket, ip);
     console.log('new user', userId, ip);
 });
+
+function ipFromRequest(request: express.Request) {
+    try {
+        return (request.headers['x-forwarded-for'] as string).split(/\s*,\s*/)[0];
+    } catch (e) {
+        return request.ip;
+    }
+}
 
 const server = app.listen(process.env.PORT || 8080, () => console.log('listening...'));
 
@@ -78,7 +86,7 @@ function ping() {
     });
 }
 
-function createUser(websocket: WebSocket) {
+function createUser(websocket: WebSocket, userIp: unknown) {
     websocket.on('ping', (data) => console.log('pinged', data));
 
     const user = zone.getUser(++lastUserId as UserId);
@@ -103,25 +111,35 @@ function createUser(websocket: WebSocket) {
     });
 
     messaging.setHandler('resync', () => {
-        const video = copy(playback.currentVideo);
-        video.time = playback.currentTime;
-        sendOnly('youtube', video, user.userId);
-    });
-
-    messaging.setHandler('youtube', (message: any) => {
-        if (message.video) {
-            message.video.meta = { userId: user.userId };
-            playback.queueYoutube(message.video);
+        if (playback.playing) {
+            const video = copy(playback.currentVideo);
+            video.time = playback.currentTime;
+            sendOnly('youtube', video, user.userId);
         } else {
-            const { videoId } = message;
-            playback.queueYoutubeById(videoId, { userId: user.userId });
+            sendOnly('youtube', {}, user.userId);
         }
     });
+
+    function tryQueue(videoId: string) {
+        const existing = playback.queue.find((video) => video.videoId === videoId);
+        const limit = 3;
+        const count = playback.queue.filter((video) => video.meta.ip === userIp).length;
+
+        if (existing) {
+            sendOnly('status', { text: `'${existing.title}' is already queued` }, user.userId);
+        } else if (count >= limit) {
+            sendOnly('status', { text: `you already have ${count} videos in the queue` }, user.userId);
+        } else {
+            playback.queueYoutubeById(videoId, { userId: user.userId, ip: userIp });
+        }
+    }
+
+    messaging.setHandler('youtube', (message: any) => tryQueue(message.videoId));
 
     messaging.setHandler('search', (message: any) => {
         const { query } = message;
         youtube.search(query).then((results) => {
-            if (message.lucky) playback.queueYoutubeById(results[0].videoId, { userId: user.userId });
+            if (message.lucky) tryQueue(results[0].videoId);
             else sendOnly('search', { query, results }, user.userId);
         });
     });
