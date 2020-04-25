@@ -4,7 +4,7 @@ import { YOUTUBE_VIDEOS, TINY_YOUTUBE_VIDEO, DAY_YOUTUBE_VIDEO } from './test-da
 import { YoutubeVideo } from '../youtube';
 
 function waitTime(video: YoutubeVideo) {
-    return (video.duration * 1000) * 2 + (1000);
+    return video.duration * 1000 * 2 + 1000;
 }
 
 it('plays the first item queued', () => {

@@ -3,7 +3,7 @@ import * as expressWs from 'express-ws';
 import * as WebSocket from 'ws';
 import * as FileSync from 'lowdb/adapters/FileSync';
 import * as low from 'lowdb';
-import { exec } from 'child_process'
+import { exec } from 'child_process';
 import { nanoid } from 'nanoid';
 
 import { copy } from './utility';
@@ -69,7 +69,7 @@ function save() {
 setInterval(ping, 20 * 1000);
 
 function ping() {
-    xws.getWss().clients.forEach(websocket => {
+    xws.getWss().clients.forEach((websocket) => {
         try {
             websocket.ping();
         } catch (e) {
@@ -79,7 +79,7 @@ function ping() {
 }
 
 function createUser(websocket: WebSocket) {
-    websocket.on('ping', data => console.log('pinged', data));
+    websocket.on('ping', (data) => console.log('pinged', data));
 
     const user = zone.getUser(++lastUserId as UserId);
     const token = nanoid();
@@ -107,7 +107,7 @@ function createUser(websocket: WebSocket) {
         video.time = playback.currentTime;
         sendOnly('youtube', video, user.userId);
     });
-    
+
     messaging.setHandler('youtube', (message: any) => {
         if (message.video) {
             message.video.meta = { userId: user.userId };
@@ -128,13 +128,13 @@ function createUser(websocket: WebSocket) {
 
     messaging.setHandler('skip', (message: any) => {
         if (message.videoId !== playback.currentVideo?.videoId) return;
-        
+
         if (message.password === process.env.SECRET || '') {
             playback.skip();
         } else {
             skips.add(user.userId);
             const current = skips.size;
-            const target = Math.ceil(zone.users.size * .6);
+            const target = Math.ceil(zone.users.size * 0.6);
             if (current >= target) {
                 sendAll('status', { text: `voted to skip ${playback.currentVideo?.title}` });
                 playback.skip();
@@ -190,12 +190,11 @@ function createUser(websocket: WebSocket) {
         connections.delete(user.userId);
         sendAll('leave', { userId: user.userId });
 
-        if (user.name) 
-            sendAll('status', { text: `${user.name} left` });
+        if (user.name) sendAll('status', { text: `${user.name} left` });
     });
 
     const users = Array.from(zone.users.values());
-    const names = users.map(u => [u.userId, u.name]);
+    const names = users.map((user) => [user.userId, user.name]);
 
     sendOnly('assign', { userId: user.userId, token }, user.userId);
     sendOnly('users', { names, users }, user.userId);
@@ -206,12 +205,6 @@ function createUser(websocket: WebSocket) {
         video.time = playback.currentTime;
         sendOnly('youtube', video, user.userId);
     }
-
-    zone.users.forEach((user, userId) => {
-        if (user.position) sendOnly('move', { userId, position: user.position }, user.userId);
-        if (user.emotes) sendOnly('emotes', { userId, emotes: user.emotes }, user.userId);
-        if (user.avatar) sendOnly('avatar', { userId, data: user.avatar }, user.userId);
-    });
 
     return user.userId;
 }

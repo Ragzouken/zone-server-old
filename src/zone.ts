@@ -1,4 +1,4 @@
-import { getDefault } from "./utility";
+import { getDefault } from './utility';
 
 export type UserId = unknown;
 

@@ -31,8 +31,7 @@ export default class Playback extends EventEmitter {
     }
 
     loadState(data: PlaybackState) {
-        if (data.current)
-            this.setVideo(data.current, data.time / 1000);
+        if (data.current) this.setVideo(data.current, data.time / 1000);
         data.queue.forEach((video) => this.queueYoutube(video));
     }
 
