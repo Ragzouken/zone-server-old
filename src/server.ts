@@ -30,8 +30,7 @@ app.get('/', (request, response) => {
 // this zone's websocket endpoint
 app.ws('/zone', (websocket, req) => {
     const ip = ipFromRequest(req);
-    const userId = createUser(websocket, ip);
-    console.log('new user', userId, ip);
+    const userId = waitConnection(websocket, ip);
 });
 
 function ipFromRequest(request: express.Request) {
@@ -93,13 +92,19 @@ function ping() {
     });
 }
 
-function createUser(websocket: WebSocket, userIp: unknown) {
-    websocket.on('ping', (data) => console.log('pinged', data));
+function waitConnection(websocket: WebSocket, userIp: unknown) {
+    const messaging = new Messaging(websocket);
 
+    messaging.setHandler('join', (message) => {
+        messaging.setHandler('join', () => {});
+        createUser(websocket, messaging, userIp);
+    });
+}
+
+function createUser(websocket: WebSocket, messaging: Messaging, userIp: unknown) {
     const user = zone.getUser(++lastUserId as UserId);
     const token = nanoid();
-
-    const messaging = new Messaging(websocket);
+    console.log('new user', user.userId, userIp);
 
     messaging.setHandler('heartbeat', () => {
         sendOnly('heartbeat', {}, user.userId);
