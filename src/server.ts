@@ -19,6 +19,7 @@ const adapter = new FileSync('.data/db.json');
 const db = low(adapter);
 db.defaults({
     playback: { current: undefined, queue: [], time: 0 },
+    youtube: { videos: [] },
 }).write();
 
 // if someone tries to load the page, redirect to the client and tell it this zone's websocket endpoint
@@ -48,7 +49,7 @@ const connections = new Map<UserId, Messaging>();
 const playback = new Playback();
 const zone = new ZoneState();
 
-playback.loadState(db.get('playback').value());
+load();
 
 playback.on('queue', (details: YoutubeVideo) => sendAll('queue', { videos: [details] }));
 playback.on('play', (details: YoutubeVideo) => sendAll('youtube', details));
@@ -70,8 +71,14 @@ const tileLengthLimit = 12;
 
 setInterval(save, 30 * 1000);
 
+function load() {
+    playback.loadState(db.get('playback').value());
+    youtube.loadState(db.get('youtube').value());
+}
+
 function save() {
     db.set('playback', playback.copyState()).write();
+    db.set('youtube', youtube.copyState()).write();
 }
 
 setInterval(ping, 20 * 1000);

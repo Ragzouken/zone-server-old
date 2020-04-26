@@ -8,17 +8,38 @@ export type YoutubeVideo = {
     meta?: any;
 };
 
+export type YoutubeState = {
+    videos: YoutubeVideo[];
+};
+
 export class Youtube {
     private cache = new Map<string, YoutubeVideo>();
 
+    public copyState(): YoutubeState {
+        return {
+            videos: Array.from(this.cache.values()),
+        };
+    }
+
+    public loadState(state: YoutubeState) {
+        this.cache.clear();
+        state.videos.forEach((video) => this.addVideo(video));
+    }
+
+    public addVideo(video: YoutubeVideo) {
+        this.cache.set(video.videoId, video);
+    }
+
     public async search(query: string): Promise<YoutubeVideo[]> {
         const results = await search(query);
-        results.forEach((video: YoutubeVideo) => this.cache.set(video.videoId, video));
+        results.forEach((video: YoutubeVideo) => this.addVideo(video));
         return results;
     }
 
     public async details(videoId: string): Promise<YoutubeVideo> {
-        let details: YoutubeVideo | undefined;
+        let details = this.cache.get(videoId);
+        if (details) return details;
+
         for (const strategy of SEARCH_STRATEGIES) {
             try {
                 const query = await strategy(videoId);
@@ -32,6 +53,7 @@ export class Youtube {
 
         if (!details) throw new Error(`Couldn't determine details of ${videoId}`);
 
+        this.addVideo(details);
         return details;
     }
 }

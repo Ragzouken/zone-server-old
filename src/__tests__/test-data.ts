@@ -1,13 +1,13 @@
 import { YoutubeVideo } from '../youtube';
 
 export const TINY_YOUTUBE_VIDEO: YoutubeVideo = {
-    videoId: '',
+    videoId: 'TINY_YOUTUBE_VIDEO',
     title: 'tiny',
     duration: 0.1,
 };
 
 export const DAY_YOUTUBE_VIDEO: YoutubeVideo = {
-    videoId: '',
+    videoId: 'DAY_YOUTUBE_VIDEO',
     title: 'day',
     duration: 24 * 60 * 60,
 };
