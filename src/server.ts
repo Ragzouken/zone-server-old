@@ -10,7 +10,7 @@ import { copy } from './utility';
 import youtube, { YoutubeVideo } from './youtube';
 import Playback from './playback';
 import Messaging from './messaging';
-import { ZoneState, UserId } from './zone';
+import { ZoneState, UserId, UserState } from './zone';
 
 const xws = expressWs(express());
 const app = xws.app;
@@ -97,8 +97,14 @@ function waitConnection(websocket: WebSocket, userIp: unknown) {
 
     messaging.setHandler('join', (message) => {
         messaging.setHandler('join', () => {});
-        createUser(websocket, messaging, userIp);
+        const user = createUser(websocket, messaging, userIp);
+        setUserName(user, message.name);
     });
+}
+
+function setUserName(user: UserState, name: string) {
+    user.name = name.substring(0, nameLengthLimit);
+    sendAll('name', { name: user.name, userId: user.userId });
 }
 
 function createUser(websocket: WebSocket, messaging: Messaging, userIp: unknown) {
@@ -116,11 +122,7 @@ function createUser(websocket: WebSocket, messaging: Messaging, userIp: unknown)
         sendAll('chat', { text, userId: user.userId });
     });
 
-    messaging.setHandler('name', (message: any) => {
-        const { name } = message;
-        user.name = name.substring(0, nameLengthLimit);
-        sendAll('name', { name: user.name, userId: user.userId });
-    });
+    messaging.setHandler('name', (message: any) => setUserName(user, message.name));
 
     messaging.setHandler('resync', () => {
         if (playback.playing) {
@@ -236,7 +238,7 @@ function createUser(websocket: WebSocket, messaging: Messaging, userIp: unknown)
         sendOnly('youtube', video, user.userId);
     }
 
-    return user.userId;
+    return user;
 }
 
 function sendAll(type: string, message: any) {
