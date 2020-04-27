@@ -4,13 +4,13 @@ import * as WebSocket from 'ws';
 import * as FileSync from 'lowdb/adapters/FileSync';
 import * as low from 'lowdb';
 import { exec } from 'child_process';
-import { nanoid } from 'nanoid';
 
-import { copy } from './utility';
+import { copy, getDefault } from './utility';
 import youtube, { YoutubeVideo } from './youtube';
 import Playback from './playback';
 import Messaging from './messaging';
 import { ZoneState, UserId, UserState } from './zone';
+import { nanoid } from 'nanoid';
 
 const xws = expressWs(express());
 const app = xws.app;
@@ -44,6 +44,7 @@ function ipFromRequest(request: express.Request) {
 const server = app.listen(process.env.PORT || 8080, () => console.log('listening...'));
 
 let lastUserId = 0;
+const tokenToUser = new Map<string, UserState>();
 const connections = new Map<UserId, Messaging>();
 const playback = new Playback();
 const zone = new ZoneState();
@@ -97,8 +98,30 @@ function waitConnection(websocket: WebSocket, userIp: unknown) {
 
     messaging.setHandler('join', (message) => {
         messaging.setHandler('join', () => {});
-        const user = createUser(websocket, messaging, userIp);
-        setUserName(user, message.name);
+
+        const resume = message.token && tokenToUser.has(message.token);
+        const token = resume ? message.token : nanoid();
+        const user = resume ? tokenToUser.get(token)! : zone.getUser(++lastUserId as UserId);
+
+        bindMessagingToUser(user, messaging, userIp);
+        connections.set(user.userId, messaging);
+
+        // TODO: don't immediately leave on code 1006
+        websocket.on('close', (code: number) => {
+            zone.users.delete(user.userId);
+            connections.delete(user.userId);
+            sendAll('leave', { userId: user.userId });
+        });
+
+        if (resume) {
+            console.log('resume user', user.userId, userIp);
+        } else {
+            console.log('new user', user.userId, userIp);
+        }
+
+        sendAllState(user);
+        sendOnly('assign', { userId: user.userId, token }, user.userId);
+        if (!resume) setUserName(user, message.name);
     });
 }
 
@@ -107,11 +130,21 @@ function setUserName(user: UserState, name: string) {
     sendAll('name', { name: user.name, userId: user.userId });
 }
 
-function createUser(websocket: WebSocket, messaging: Messaging, userIp: unknown) {
-    const user = zone.getUser(++lastUserId as UserId);
-    const token = nanoid();
-    console.log('new user', user.userId, userIp);
+function sendAllState(user: UserState) {
+    const users = Array.from(zone.users.values());
+    const names = users.map((user) => [user.userId, user.name]);
 
+    sendOnly('users', { names, users }, user.userId);
+    sendOnly('queue', { videos: playback.queue }, user.userId);
+
+    if (playback.currentVideo) {
+        const video = copy(playback.currentVideo);
+        video.time = playback.currentTime;
+        sendOnly('youtube', video, user.userId);
+    }
+}
+
+function bindMessagingToUser(user: UserState, messaging: Messaging, userIp: unknown) {
     messaging.setHandler('heartbeat', () => {
         sendOnly('heartbeat', {}, user.userId);
     });
@@ -215,30 +248,6 @@ function createUser(websocket: WebSocket, messaging: Messaging, userIp: unknown)
         user.emotes = emotes;
         sendAll('emotes', { userId: user.userId, emotes });
     });
-
-    connections.set(user.userId, messaging);
-    websocket.on('close', () => {
-        zone.users.delete(user.userId);
-        connections.delete(user.userId);
-        sendAll('leave', { userId: user.userId });
-
-        if (user.name) sendAll('status', { text: `${user.name} left` });
-    });
-
-    const users = Array.from(zone.users.values());
-    const names = users.map((user) => [user.userId, user.name]);
-
-    sendOnly('assign', { userId: user.userId, token }, user.userId);
-    sendOnly('users', { names, users }, user.userId);
-    sendOnly('queue', { videos: playback.queue }, user.userId);
-
-    if (playback.currentVideo) {
-        const video = copy(playback.currentVideo);
-        video.time = playback.currentTime;
-        sendOnly('youtube', video, user.userId);
-    }
-
-    return user;
 }
 
 function sendAll(type: string, message: any) {
