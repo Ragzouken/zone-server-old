@@ -5,7 +5,7 @@ import * as FileSync from 'lowdb/adapters/FileSync';
 import * as low from 'lowdb';
 import { exec } from 'child_process';
 
-import { copy, getDefault } from './utility';
+import { copy } from './utility';
 import youtube, { YoutubeVideo } from './youtube';
 import Playback from './playback';
 import Messaging from './messaging';
@@ -65,11 +65,15 @@ playback.on('play', () => {
     skips.clear();
 });
 
+const pingInterval = 10 * 1000;
+const saveInterval = 30 * 1000;
+const userTimeout = 5 * 1000;
 const nameLengthLimit = 16;
 const chatLengthLimit = 160;
 const tileLengthLimit = 12;
 
-setInterval(save, 30 * 1000);
+setInterval(save, saveInterval);
+setInterval(ping, pingInterval);
 
 function load() {
     playback.loadState(db.get('playback').value());
@@ -81,8 +85,6 @@ function save() {
     db.set('youtube', youtube.copyState()).write();
 }
 
-setInterval(ping, 20 * 1000);
-
 function ping() {
     xws.getWss().clients.forEach((websocket) => {
         try {
@@ -93,24 +95,50 @@ function ping() {
     });
 }
 
+const userToConnections = new Map<UserState, Set<Messaging>>();
+function addConnectionToUser(user: UserState, messaging: Messaging) {
+    const connections = userToConnections.get(user) || new Set<Messaging>();
+    connections.add(messaging);
+    userToConnections.set(user, connections);
+}
+
+function removeConnectionFromUser(user: UserState, messaging: Messaging) {
+    userToConnections.get(user)?.delete(messaging);
+}
+
+function isUserConnectionless(user: UserState) {
+    const connections = userToConnections.get(user)!;
+    const connectionless = connections.size === 0;
+    return connectionless;
+}
+
 function waitConnection(websocket: WebSocket, userIp: unknown) {
     const messaging = new Messaging(websocket);
 
     messaging.setHandler('join', (message) => {
         messaging.setHandler('join', () => {});
+        console.log(message);
 
         const resume = message.token && tokenToUser.has(message.token);
         const token = resume ? message.token : nanoid();
         const user = resume ? tokenToUser.get(token)! : zone.getUser(++lastUserId as UserId);
 
+        tokenToUser.set(token, user);
+        addConnectionToUser(user, messaging);
+
         bindMessagingToUser(user, messaging, userIp);
         connections.set(user.userId, messaging);
 
-        // TODO: don't immediately leave on code 1006
         websocket.on('close', (code: number) => {
-            zone.users.delete(user.userId);
-            connections.delete(user.userId);
-            sendAll('leave', { userId: user.userId });
+            removeConnectionFromUser(user, messaging);
+
+            setTimeout(() => {
+                if (isUserConnectionless(user) && zone.users.has(user.userId)) {
+                    zone.users.delete(user.userId);
+                    connections.delete(user.userId);
+                    sendAll('leave', { userId: user.userId });
+                }
+            }, userTimeout);
         });
 
         if (resume) {
