@@ -112,6 +112,13 @@ function isUserConnectionless(user: UserState) {
     return connectionless;
 }
 
+function killUser(user: UserState) {
+    if (zone.users.has(user.userId)) sendAll('leave', { userId: user.userId });
+    zone.users.delete(user.userId);
+    connections.delete(user.userId);
+    userToConnections.delete(user);
+}
+
 function waitConnection(websocket: WebSocket, userIp: unknown) {
     const messaging = new Messaging(websocket);
 
@@ -131,14 +138,15 @@ function waitConnection(websocket: WebSocket, userIp: unknown) {
 
         websocket.on('close', (code: number) => {
             removeConnectionFromUser(user, messaging);
+            const cleanExit = code === 1000 || code === 1001;
 
-            setTimeout(() => {
-                if (isUserConnectionless(user) && zone.users.has(user.userId)) {
-                    zone.users.delete(user.userId);
-                    connections.delete(user.userId);
-                    sendAll('leave', { userId: user.userId });
-                }
-            }, userTimeout);
+            if (cleanExit) {
+                killUser(user);
+            } else {
+                setTimeout(() => {
+                    if (isUserConnectionless(user)) killUser(user);
+                }, userTimeout);
+            }
         });
 
         if (resume) {
