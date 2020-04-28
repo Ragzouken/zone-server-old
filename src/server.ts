@@ -30,7 +30,7 @@ app.get('/', (request, response) => {
 // this zone's websocket endpoint
 app.ws('/zone', (websocket, req) => {
     const ip = ipFromRequest(req);
-    const userId = waitConnection(websocket, ip);
+    const userId = waitJoin(websocket, ip);
 });
 
 function ipFromRequest(request: express.Request) {
@@ -119,7 +119,7 @@ function killUser(user: UserState) {
     userToConnections.delete(user);
 }
 
-function waitConnection(websocket: WebSocket, userIp: unknown) {
+function waitJoin(websocket: WebSocket, userIp: unknown) {
     const messaging = new Messaging(websocket);
 
     messaging.setHandler('join', (message) => {
@@ -127,6 +127,14 @@ function waitConnection(websocket: WebSocket, userIp: unknown) {
         console.log(message);
 
         const resume = message.token && tokenToUser.has(message.token);
+        const authorised = resume || !process.env.join_password || message.password === process.env.join_password;
+
+        if (!authorised) {
+            messaging.send('reject', { text: 'rejected: password required' });
+            websocket.close(4000);
+            return;
+        }
+
         const token = resume ? message.token : nanoid();
         const user = resume ? tokenToUser.get(token)! : zone.getUser(++lastUserId as UserId);
 
