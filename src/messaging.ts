@@ -19,9 +19,9 @@ export class WebSocketMessaging extends EventEmitter {
         this.websocket.on('close', (code, reason) => this.emit('close', code, reason));
     }
 
-    disconnect() {
+    disconnect(code = 1000) {
         this.websocket.removeAllListeners();
-        this.websocket.close(1000);
+        this.websocket.close(code);
     }
 
     send(type: string, message: any) {
