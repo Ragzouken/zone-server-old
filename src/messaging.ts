@@ -34,7 +34,7 @@ export class WebSocketMessaging extends EventEmitter {
         }
     }
 
-    setHandler(type: string, handler: (message: any) => void) {
+    setHandler(type: string, handler: (message: Message) => void) {
         this.handlers.set(type, handler);
     }
 
