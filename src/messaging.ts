@@ -1,9 +1,20 @@
 import * as WebSocket from 'ws';
+import { EventEmitter } from 'events';
 
-export default class WebSocketMessaging {
+export interface Message {
+    type: string;
+    [key: string]: any;
+}
+
+export interface WebSocketMessaging {
+    on(event: 'unhandled', callback: (message: Message) => void): this;
+}
+
+export class WebSocketMessaging extends EventEmitter {
     private handlers = new Map<string, (message: any) => void>();
 
     constructor(private websocket: WebSocket) {
+        super();
         this.websocket.on('message', (message) => this.onMessage(message));
         this.websocket.on('close', (code, reason) => console.log('websocket disonnect:', code, reason));
     }
@@ -43,7 +54,9 @@ export default class WebSocketMessaging {
                 console.log('EXCEPTION HANDLING MESSAGE', message, e);
             }
         } else {
-            console.log(`NO HANDLER FOR MESSAGE TYPE ${message.type}`);
+            this.emit('unhandled', message);
         }
     }
 }
+
+export default WebSocketMessaging;

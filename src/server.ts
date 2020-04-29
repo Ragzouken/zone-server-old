@@ -11,14 +11,38 @@ import Messaging from './messaging';
 import { ZoneState, UserId, UserState } from './zone';
 import { nanoid } from 'nanoid';
 
-const pingInterval = 10 * 1000;
-const saveInterval = 30 * 1000;
-const userTimeout = 5 * 1000;
-const nameLengthLimit = 16;
-const chatLengthLimit = 160;
+const SECONDS = 1000;
 const tileLengthLimit = 12;
 
-export function host(adapter: low.AdapterSync) {
+export type HostOptions = {
+    listenHandle: any;
+    pingInterval: number;
+    saveInterval: number;
+    userTimeout: number;
+    nameLengthLimit: number;
+    chatLengthLimit: number;
+
+    voteSkipThreshold: number;
+    errorSkipThreshold: number;
+
+    joinPassword?: string;
+};
+
+export const DEFAULT_OPTIONS: HostOptions = {
+    listenHandle: 0,
+    pingInterval: 10 * SECONDS,
+    saveInterval: 30 * SECONDS,
+    userTimeout: 5 * SECONDS,
+    nameLengthLimit: 16,
+    chatLengthLimit: 160,
+
+    voteSkipThreshold: 0.6,
+    errorSkipThreshold: 0.4,
+};
+
+export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {}) {
+    const opts = Object.assign({}, DEFAULT_OPTIONS, options);
+
     const db = low(adapter);
     db.defaults({
         playback: { current: undefined, queue: [], time: 0 },
@@ -38,7 +62,7 @@ export function host(adapter: low.AdapterSync) {
     // this zone's websocket endpoint
     app.ws('/zone', (websocket, req) => waitJoin(websocket, req.ip));
 
-    const server = app.listen(process.env.PORT || 8080, () => console.log('listening...'));
+    const server = app.listen(opts.listenHandle, () => console.log('listening...'));
 
     function ping() {
         xws.getWss().clients.forEach((websocket) => {
@@ -50,7 +74,8 @@ export function host(adapter: low.AdapterSync) {
         });
     }
 
-    setInterval(ping, pingInterval);
+    setInterval(ping, opts.pingInterval);
+    setInterval(save, opts.saveInterval);
 
     let lastUserId = 0;
     const tokenToUser = new Map<string, UserState>();
@@ -73,8 +98,6 @@ export function host(adapter: low.AdapterSync) {
         errors.clear();
         skips.clear();
     });
-
-    setInterval(save, saveInterval);
 
     function load() {
         playback.loadState(db.get('playback').value());
@@ -112,13 +135,14 @@ export function host(adapter: low.AdapterSync) {
 
     function waitJoin(websocket: WebSocket, userIp: unknown) {
         const messaging = new Messaging(websocket);
+        messaging.on('unhandled', (message) => console.log(`NO HANDLER FOR MESSAGE TYPE ${message.type}`));
 
         messaging.setHandler('join', (message) => {
             messaging.setHandler('join', () => {});
             console.log(message);
 
             const resume = message.token && tokenToUser.has(message.token);
-            const authorised = resume || !process.env.join_password || message.password === process.env.join_password;
+            const authorised = resume || !opts.joinPassword || message.password === opts.joinPassword;
 
             if (!authorised) {
                 messaging.send('reject', { text: 'rejected: password required' });
@@ -144,7 +168,7 @@ export function host(adapter: low.AdapterSync) {
                 } else {
                     setTimeout(() => {
                         if (isUserConnectionless(user)) killUser(user);
-                    }, userTimeout);
+                    }, opts.userTimeout);
                 }
             });
 
@@ -161,7 +185,7 @@ export function host(adapter: low.AdapterSync) {
     }
 
     function setUserName(user: UserState, name: string) {
-        user.name = name.substring(0, nameLengthLimit);
+        user.name = name.substring(0, opts.nameLengthLimit);
         sendAll('name', { name: user.name, userId: user.userId });
     }
 
@@ -186,7 +210,7 @@ export function host(adapter: low.AdapterSync) {
 
         messaging.setHandler('chat', (message: any) => {
             let { text } = message;
-            text = text.substring(0, chatLengthLimit);
+            text = text.substring(0, opts.chatLengthLimit);
             sendAll('chat', { text, userId: user.userId });
         });
 
@@ -234,7 +258,7 @@ export function host(adapter: low.AdapterSync) {
             } else {
                 skips.add(user.userId);
                 const current = skips.size;
-                const target = Math.ceil(zone.users.size * 0.6);
+                const target = Math.ceil(zone.users.size * opts.voteSkipThreshold);
                 if (current >= target) {
                     sendAll('status', { text: `voted to skip ${playback.currentVideo?.title}` });
                     playback.skip();
@@ -264,7 +288,7 @@ export function host(adapter: low.AdapterSync) {
             if (!playback.currentVideo || message.videoId !== playback.currentVideo.videoId) return;
             if (!user.name) return;
             errors.add(user.userId);
-            if (errors.size > zone.users.size / 2) {
+            if (errors.size >= Math.floor(zone.users.size * opts.errorSkipThreshold)) {
                 sendAll('status', {
                     text: `skipping unplayable video ${playback.currentVideo.title}`,
                 });
