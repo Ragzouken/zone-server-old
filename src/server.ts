@@ -26,6 +26,8 @@ export type HostOptions = {
     errorSkipThreshold: number;
 
     joinPassword?: string;
+    skipPassword?: string;
+    rebootPassword?: string;
 };
 
 export const DEFAULT_OPTIONS: HostOptions = {
@@ -253,7 +255,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         messaging.setHandler('skip', (message: any) => {
             if (message.videoId !== playback.currentVideo?.videoId) return;
 
-            if (message.password === process.env.SECRET || '') {
+            if (opts.skipPassword && message.password === opts.skipPassword) {
                 playback.skip();
             } else {
                 skips.add(user.userId);
@@ -277,7 +279,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
 
         messaging.setHandler('reboot', (message: any) => {
             const { master_key } = message;
-            if (master_key === process.env.MASTER_KEY) {
+            if (opts.rebootPassword && master_key === opts.rebootPassword) {
                 save();
                 sendAll('status', { text: 'rebooting server' });
                 exec('git pull && refresh');
