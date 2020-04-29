@@ -82,3 +82,32 @@ test('can join passworded server with password', async () => {
         { joinPassword: password },
     );
 });
+
+test('can resume session with token', async () => {
+    await withServer(async (server) => {
+        return new Promise((resolve, reject) => {
+            setTimeout(() => reject('timed out'), 1000);
+            const websocket1 = new WebSocket(socketAddress(server));
+            const messaging1 = new WebSocketMessaging(websocket1);
+
+            websocket1.addEventListener('open', () => messaging1.send('join', { name: 'test' }));
+            messaging1.setHandler('assign', (assign1) => {
+                websocket1.close(3000);
+                const websocket2 = new WebSocket(socketAddress(server));
+                const messaging2 = new WebSocketMessaging(websocket2);
+
+                websocket2.addEventListener('open', () => {
+                    messaging2.send('join', { name: 'test', token: assign1.token });
+                });
+                messaging2.setHandler('assign', (assign2) => {
+                    expect(assign2.userId).toEqual(assign1.userId);
+                    expect(assign2.token).toEqual(assign1.token);
+                    resolve();
+                });
+                messaging2.setHandler('reject', () => reject('resume rejected'));
+            });
+
+            messaging1.setHandler('reject', () => reject('initial join rejected'));
+        });
+    });
+});
