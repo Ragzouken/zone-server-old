@@ -12,16 +12,7 @@ function socketAddress(server: Server) {
 
 async function withServer(callback: (server: Server) => Promise<void>, options?: Partial<HostOptions>) {
     const server = host(new Memory(''), options);
-    console.log('OPENED');
-    await callback(server).finally(() => {
-        return new Promise((resolve) => {
-            console.log('CLOSING...');
-            server.close(() => {
-                console.log('CLOSED');
-                resolve();
-            });
-        });
-    });
+    await callback(server).finally(() => server.close());
 }
 
 async function waitOpen(socket: WebSocket, timeout = 200) {

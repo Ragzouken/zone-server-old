@@ -64,7 +64,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
     // this zone's websocket endpoint
     app.ws('/zone', (websocket, req) => waitJoin(websocket, req.ip));
 
-    const server = app.listen(opts.listenHandle, () => console.log('listening...'));
+    const server = app.listen(opts.listenHandle);
 
     function ping() {
         xws.getWss().clients.forEach((websocket) => {
@@ -137,11 +137,9 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
 
     function waitJoin(websocket: WebSocket, userIp: unknown) {
         const messaging = new Messaging(websocket);
-        messaging.on('unhandled', (message) => console.log(`NO HANDLER FOR MESSAGE TYPE ${message.type}`));
 
         messaging.setHandler('join', (message) => {
             messaging.setHandler('join', () => {});
-            console.log(message);
 
             const resume = message.token && tokenToUser.has(message.token);
             const authorised = resume || !opts.joinPassword || message.password === opts.joinPassword;

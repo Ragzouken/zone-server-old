@@ -16,7 +16,7 @@ export class WebSocketMessaging extends EventEmitter {
     constructor(private websocket: WebSocket) {
         super();
         this.websocket.on('message', (message) => this.onMessage(message));
-        this.websocket.on('close', (code, reason) => console.log('websocket disonnect:', code, reason));
+        this.websocket.on('close', (code, reason) => this.emit('close', code, reason));
     }
 
     disconnect() {
