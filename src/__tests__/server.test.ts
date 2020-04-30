@@ -100,3 +100,11 @@ test('can resume session with token', async () => {
         expect(assign2.token).toEqual(assign1.token);
     });
 });
+
+test('heartbeat response', async () => {
+    await server({}, async (server) => {
+        const messaging = new WebSocketMessaging(await server.socket());
+        await waitResponse(messaging, 'join', { name: 'test '}, 'assign');
+        await waitResponse(messaging, 'heartbeat', {}, 'heartbeat');
+    });
+});

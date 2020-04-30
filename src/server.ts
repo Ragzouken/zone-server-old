@@ -244,7 +244,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         if (playback.currentItem) {
             const video = queueToDetails(playback.currentItem) as any;
             video.time = playback.currentTime;
-            sendOnly('play', { item: playback.currentItem, time: playback.currentItem }, user.userId);
+            sendOnly('play', { item: playback.currentItem, time: playback.currentTime }, user.userId);
         } else {
             sendOnly('play', {}, user.userId);
         }
@@ -255,7 +255,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         const names = users.map((user) => [user.userId, user.name]);
 
         sendOnly('users', { names, users }, user.userId);
-        sendOnly('queue', { videos: playback.queue.map(queueToDetails), items: playback.queue }, user.userId);
+        sendOnly('queue', { items: playback.queue }, user.userId);
         sendCurrent(user);
     }
 
