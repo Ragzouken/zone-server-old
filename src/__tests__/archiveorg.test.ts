@@ -9,7 +9,7 @@ const THREADS_MEDIA: PlayableMedia<HTTPSource> = {
 const PRISONER_MEDIA: PlayableMedia<HTTPSource> = {
     details: { title: 'The Prisoner 01 Arrival', duration: 2935410 },
     source: { type: 'http', src: 'https://archive.org/download/The_Prisoner/ThePrisoner01Arrival.mp4' },
-}
+};
 
 const PATH_TO_MEDIA = [
     { path: 'The_Prisoner/ThePrisoner01Arrival.mp4', media: PRISONER_MEDIA },

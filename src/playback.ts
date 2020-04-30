@@ -16,24 +16,22 @@ export interface PlayableMedia<TSource extends PlayableSource = PlayableSource> 
 }
 
 export type QueueInfo = { userId?: UserId; ip?: unknown };
-export interface QueuedMedia<TSource extends PlayableSource = PlayableSource> extends PlayableMedia<TSource> {
-    queue: QueueInfo;
-}
+export type QueueItem = { media: PlayableMedia; info: QueueInfo };
 
 export type PlaybackState = {
-    current?: QueuedMedia;
-    queue: QueuedMedia[];
+    current?: QueueItem;
+    queue: QueueItem[];
     time: number;
 };
 
 export interface Playback {
-    on(event: 'play' | 'queue', callback: (media: QueuedMedia) => void): this;
+    on(event: 'play' | 'queue', callback: (media: QueueItem) => void): this;
     on(event: 'stop', callback: () => void): this;
 }
 
 export class Playback extends EventEmitter {
-    public currentMedia?: QueuedMedia;
-    public queue: QueuedMedia[] = [];
+    public currentItem?: QueueItem;
+    public queue: QueueItem[] = [];
 
     private currentBeginTime: number = 0;
     private currentEndTime: number = 0;
@@ -46,7 +44,7 @@ export class Playback extends EventEmitter {
 
     copyState(): PlaybackState {
         return {
-            current: this.currentMedia,
+            current: this.currentItem,
             queue: this.queue,
             time: this.currentTime,
         };
@@ -54,11 +52,11 @@ export class Playback extends EventEmitter {
 
     loadState(data: PlaybackState) {
         if (data.current) this.setMedia(data.current, data.time);
-        data.queue.forEach((media) => this.queueMedia(media, media.queue));
+        data.queue.forEach((item) => this.queueMedia(item.media, item.info));
     }
 
     queueMedia(media: PlayableMedia, info: QueueInfo = {}) {
-        const queued = Object.assign(media, { queue: info });
+        const queued = { media, info };
         this.queue.push(queued);
         this.emit('queue', queued);
         this.check();
@@ -82,14 +80,14 @@ export class Playback extends EventEmitter {
         else this.clearMedia();
     }
 
-    private playMedia(media: QueuedMedia) {
+    private playMedia(media: QueueItem) {
         this.setMedia(media, 0);
     }
 
     private clearMedia() {
-        if (this.currentMedia) this.emit('stop');
+        if (this.currentItem) this.emit('stop');
         this.setTime(0);
-        this.currentMedia = undefined;
+        this.currentItem = undefined;
     }
 
     private check() {
@@ -101,10 +99,10 @@ export class Playback extends EventEmitter {
         }
     }
 
-    private setMedia(media: QueuedMedia, time = 0) {
-        this.currentMedia = media;
-        this.setTime(media.details.duration, time);
-        this.emit('play', copy(media));
+    private setMedia(item: QueueItem, time = 0) {
+        this.currentItem = item;
+        this.setTime(item.media.details.duration, time);
+        this.emit('play', copy(item));
     }
 
     private setTime(duration: number, time = 0) {

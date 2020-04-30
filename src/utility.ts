@@ -1,6 +1,10 @@
 import fetch from 'node-fetch';
 import * as HTMLParser from 'node-html-parser';
 
+export function objEqual(a: any, b: any) {
+    return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function sleep(milliseconds: number) {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
