@@ -162,3 +162,20 @@ test('server sends currently playing', async () => {
         expect(video2.item).toEqual(video1.item);
     });
 });
+
+test('server sends leave messages', async () => {
+    await server({}, async (server) => {
+        const name = 'baby yoda';
+        const messaging1 = await server.messaging();
+        const messaging2 = await server.messaging();
+        
+        const { userId } = await join(messaging1, { name });
+        await join(messaging2);
+
+        const waiter = response(messaging2, 'leave');
+        messaging1.disconnect();
+        const leave = await waiter;
+
+        expect(leave.userId).toEqual(userId);
+    });
+});
