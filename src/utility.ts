@@ -19,6 +19,11 @@ export function timeToSeconds(time: string): number {
     return seconds + minutes * 60 + hours * 3600;
 }
 
+export async function fetchJson(url: string) {
+    const json = await fetch(url).then((r) => r.text());
+    return JSON.parse(json);
+}
+
 export async function fetchDom(url: string): Promise<HTMLParser.HTMLElement> {
     const address = encodeURI(url);
     const response = await fetch(address);

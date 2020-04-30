@@ -21,7 +21,7 @@ export interface QueuedMedia<TSource extends PlayableSource = PlayableSource> ex
 }
 
 export type PlaybackState = {
-    current: QueuedMedia | undefined;
+    current?: QueuedMedia;
     queue: QueuedMedia[];
     time: number;
 };
@@ -32,14 +32,14 @@ export interface Playback {
 }
 
 export class Playback extends EventEmitter {
-    public currentMedia: QueuedMedia | undefined = undefined;
+    public currentMedia?: QueuedMedia;
     public queue: QueuedMedia[] = [];
 
     private currentBeginTime: number = 0;
     private currentEndTime: number = 0;
     private checkTimeout: NodeJS.Timeout | undefined;
 
-    constructor() {
+    constructor(public paddingTime = 0) {
         super();
         this.clearMedia();
     }
@@ -95,7 +95,7 @@ export class Playback extends EventEmitter {
     private check() {
         if (this.playing) {
             if (this.checkTimeout) clearTimeout(this.checkTimeout);
-            this.checkTimeout = setTimeout(() => this.check(), this.remainingTime + 1000);
+            this.checkTimeout = setTimeout(() => this.check(), this.remainingTime + this.paddingTime);
         } else {
             this.skip();
         }

@@ -82,7 +82,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
     let lastUserId = 0;
     const tokenToUser = new Map<string, UserState>();
     const connections = new Map<UserId, Messaging>();
-    const playback = new Playback();
+    const playback = new Playback(1000);
     const zone = new ZoneState();
 
     load();
@@ -301,11 +301,11 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
             const { query } = message;
 
             function youtubeToDetails(video: YoutubeVideo) {
-                return { 
-                    title: video.details.title, 
-                    duration: video.details.duration / 1000, 
+                return {
+                    title: video.details.title,
+                    duration: video.details.duration / 1000,
                     videoId: video.source.videoId,
-                }
+                };
             }
 
             youtube.search(query).then((results) => {
