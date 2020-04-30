@@ -1,7 +1,8 @@
 import { fetchDom, timeToSeconds } from './utility';
 import { PlayableMedia } from './playback';
 
-export type YoutubeVideo = PlayableMedia<{ type: 'youtube'; videoId: string }>;
+export type YoutubeSource = { type: 'youtube'; videoId: string };
+export type YoutubeVideo = PlayableMedia<YoutubeSource>;
 
 export type YoutubeState = {
     videos: YoutubeVideo[];

@@ -5,8 +5,8 @@ import * as low from 'lowdb';
 import { exec } from 'child_process';
 
 import { copy } from './utility';
-import youtube, { YoutubeVideo } from './youtube';
-import Playback from './playback';
+import youtube, { YoutubeSource, YoutubeVideo } from './youtube';
+import Playback, { QueuedMedia } from './playback';
 import Messaging from './messaging';
 import { ZoneState, UserId, UserState } from './zone';
 import { nanoid } from 'nanoid';
@@ -87,8 +87,22 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
 
     load();
 
-    playback.on('queue', (details: YoutubeVideo) => sendAll('queue', { videos: [details] }));
-    playback.on('play', (details: YoutubeVideo) => sendAll('youtube', details));
+    function mediaToYoutube(media: QueuedMedia) {
+        console.assert(media.source.type === 'youtube');
+        return media as QueuedMedia<YoutubeSource>;
+    }
+
+    function queueToDetails(media: QueuedMedia) {
+        return {
+            videoId: mediaToYoutube(media).source.videoId,
+            title: media.details.title,
+            duration: media.details.duration / 1000,
+            meta: { userId: media.queue.userId },
+        };
+    }
+
+    playback.on('queue', (media: QueuedMedia) => sendAll('queue', { videos: [queueToDetails(media)] }));
+    playback.on('play', (media: QueuedMedia) => sendAll('youtube', queueToDetails(media)));
     playback.on('stop', () => sendAll('youtube', {}));
 
     playback.on('queue', save);
@@ -133,6 +147,43 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         zone.users.delete(user.userId);
         connections.delete(user.userId);
         userToConnections.delete(user);
+    }
+
+    function voteError(videoId: string, user: UserState) {
+        if (!playback.currentMedia) return;
+
+        const video = queueToDetails(playback.currentMedia);
+        if (videoId !== video.videoId) return;
+
+        errors.add(user.userId);
+        if (errors.size >= Math.floor(zone.users.size * opts.errorSkipThreshold)) {
+            skip(`skipping unplayable video ${playback.currentMedia.details.title}`);
+        }
+    }
+
+    function voteSkip(videoId: string, user: UserState, password?: string) {
+        if (!playback.currentMedia) return;
+
+        const video = queueToDetails(playback.currentMedia);
+        if (videoId !== video.videoId) return;
+
+        if (opts.skipPassword && password === opts.skipPassword) {
+            playback.skip();
+        } else {
+            skips.add(user.userId);
+            const current = skips.size;
+            const target = Math.ceil(zone.users.size * opts.voteSkipThreshold);
+            if (current >= target) {
+                skip(`voted to skip ${playback.currentMedia.details.title}`);
+            } else {
+                sendAll('status', { text: `${current} of ${target} votes to skip` });
+            }
+        }
+    }
+
+    function skip(message?: string) {
+        if (message) sendAll('status', { text: message });
+        playback.skip();
     }
 
     function waitJoin(websocket: WebSocket, userIp: unknown) {
@@ -194,10 +245,10 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         const names = users.map((user) => [user.userId, user.name]);
 
         sendOnly('users', { names, users }, user.userId);
-        sendOnly('queue', { videos: playback.queue }, user.userId);
+        sendOnly('queue', { videos: playback.queue.map(queueToDetails) }, user.userId);
 
         if (playback.currentMedia) {
-            const video = copy(playback.currentMedia);
+            const video = queueToDetails(playback.currentMedia) as any;
             video.time = playback.currentTime;
             sendOnly('youtube', video, user.userId);
         }
@@ -226,11 +277,13 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
             }
         });
 
-        async function tryQueueYoutube(videoId: string) {
-            const youtubes = playback.queue.filter((media) => media.source.type === 'youtube') as YoutubeVideo[];
+        async function tryQueueYoutubeById(videoId: string) {
+            const youtubes = playback.queue.filter((media) => media.source.type === 'youtube') as QueuedMedia<
+                YoutubeSource
+            >[];
             const existing = youtubes.find((video) => video.source.videoId === videoId);
             const limit = 3;
-            const count = playback.queue.filter((video) => video.meta.ip === userIp).length;
+            const count = playback.queue.filter((video) => video.queue.ip === userIp).length;
 
             if (existing) {
                 sendOnly('status', { text: `'${existing.details.title}' is already queued` }, user.userId);
@@ -238,36 +291,27 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
                 sendOnly('status', { text: `you already have ${count} videos in the queue` }, user.userId);
             } else {
                 const media = await youtube.details(videoId);
-                playback.queueMedia(media);// { userId: user.userId, ip: userIp });
+                playback.queueMedia(media, { userId: user.userId, ip: userIp });
             }
         }
 
-        messaging.setHandler('youtube', (message: any) => tryQueueYoutube(message.videoId));
+        messaging.setHandler('youtube', (message: any) => tryQueueYoutubeById(message.videoId));
 
         messaging.setHandler('search', (message: any) => {
             const { query } = message;
-            youtube.search(query).then((results) => {
-                if (message.lucky) tryQueueYoutube(results[0].videoId);
-                else sendOnly('search', { query, results }, user.userId);
-            });
-        });
 
-        messaging.setHandler('skip', (message: any) => {
-            if (message.videoId !== playback.currentMedia?.videoId) return;
-
-            if (opts.skipPassword && message.password === opts.skipPassword) {
-                playback.skip();
-            } else {
-                skips.add(user.userId);
-                const current = skips.size;
-                const target = Math.ceil(zone.users.size * opts.voteSkipThreshold);
-                if (current >= target) {
-                    sendAll('status', { text: `voted to skip ${playback.currentMedia?.title}` });
-                    playback.skip();
-                } else {
-                    sendAll('status', { text: `${current} of ${target} votes to skip` });
+            function youtubeToDetails(video: YoutubeVideo) {
+                return { 
+                    title: video.details.title, 
+                    duration: video.details.duration / 1000, 
+                    videoId: video.source.videoId,
                 }
             }
+
+            youtube.search(query).then((results) => {
+                if (message.lucky) tryQueueYoutubeById(results[0].source.videoId);
+                else sendOnly('search', { query, results: results.map(youtubeToDetails) }, user.userId);
+            });
         });
 
         messaging.setHandler('avatar', (message: any) => {
@@ -286,17 +330,8 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
             }
         });
 
-        messaging.setHandler('error', (message: any) => {
-            if (!playback.currentMedia || message.videoId !== playback.currentMedia.videoId) return;
-            if (!user.name) return;
-            errors.add(user.userId);
-            if (errors.size >= Math.floor(zone.users.size * opts.errorSkipThreshold)) {
-                sendAll('status', {
-                    text: `skipping unplayable video ${playback.currentMedia.title}`,
-                });
-                playback.skip();
-            }
-        });
+        messaging.setHandler('error', (message: any) => voteError(message.videoId, user));
+        messaging.setHandler('skip', (message: any) => voteSkip(message.videoId, user, message.password));
 
         messaging.setHandler('move', (message: any) => {
             const { position } = message;
