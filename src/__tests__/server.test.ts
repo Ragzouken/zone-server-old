@@ -47,7 +47,6 @@ class TestServer {
     }
 }
 
-
 async function response(messaging: WebSocketMessaging, type: string): Promise<any> {
     return new Promise((resolve) => {
         messaging.setHandler(type, (message) => {
@@ -60,7 +59,7 @@ async function response(messaging: WebSocketMessaging, type: string): Promise<an
 function join(messaging: WebSocketMessaging, message: any = {}) {
     return new Promise<Message>((resolve, reject) => {
         messaging.setHandler('assign', resolve);
-        messaging.setHandler('reject', () => reject(new Error()));
+        messaging.setHandler('reject', reject);
         messaging.send('join', Object.assign({ name: 'anonymous' }, message));
     });
 }
@@ -97,7 +96,7 @@ test("can't join passworded server without password", async () => {
     const password = 'riverdale';
     await server({ joinPassword: password }, async (server) => {
         const messaging = await server.messaging();
-        await expect(join(messaging)).rejects.toThrow(Error);
+        await expect(join(messaging)).rejects.toMatchObject({ type: 'reject' });
     });
 });
 
@@ -141,7 +140,7 @@ test('server sends user list', async () => {
         const waitUsers = response(messaging2, 'users');
         await join(messaging2);
         const { users } = await waitUsers;
-        
+
         expect(users[0]).toMatchObject({ userId, name });
     });
 });
@@ -150,7 +149,7 @@ test('server sends currently playing', async () => {
     await server({}, async (server) => {
         const messaging1 = await server.messaging();
         const messaging2 = await server.messaging();
-        
+
         await join(messaging1);
         const video1 = await exchange(messaging1, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
 
@@ -168,7 +167,7 @@ test('server sends leave messages', async () => {
         const name = 'baby yoda';
         const messaging1 = await server.messaging();
         const messaging2 = await server.messaging();
-        
+
         const { userId } = await join(messaging1, { name });
         await join(messaging2);
 
