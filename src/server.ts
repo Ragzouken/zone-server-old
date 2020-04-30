@@ -6,10 +6,11 @@ import { exec } from 'child_process';
 
 import { copy } from './utility';
 import youtube, { YoutubeSource, YoutubeVideo } from './youtube';
-import Playback, { QueuedMedia } from './playback';
+import Playback, { QueuedMedia, PlayableMedia } from './playback';
 import Messaging from './messaging';
 import { ZoneState, UserId, UserState } from './zone';
 import { nanoid } from 'nanoid';
+import { archiveOrgToPlayableHTTP } from './archiveorg';
 
 const SECONDS = 1000;
 const tileLengthLimit = 12;
@@ -22,6 +23,7 @@ export type HostOptions = {
     nameLengthLimit: number;
     chatLengthLimit: number;
 
+    perUserQueueLimit: number;
     voteSkipThreshold: number;
     errorSkipThreshold: number;
 
@@ -38,6 +40,7 @@ export const DEFAULT_OPTIONS: HostOptions = {
     nameLengthLimit: 16,
     chatLengthLimit: 160,
 
+    perUserQueueLimit: 3,
     voteSkipThreshold: 0.6,
     errorSkipThreshold: 0.4,
 };
@@ -277,26 +280,34 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
             }
         });
 
-        async function tryQueueYoutubeById(videoId: string) {
-            const youtubes = playback.queue.filter((media) => media.source.type === 'youtube') as QueuedMedia<
-                YoutubeSource
-            >[];
-            const existing = youtubes.find((video) => video.source.videoId === videoId);
-            const limit = 3;
+        function objEqual(a: any, b: any) {
+            return JSON.stringify(a) === JSON.stringify(b);
+        }
+        
+        async function tryQueueMedia(media: PlayableMedia) {
+            const existing = playback.queue.find((queued) => objEqual(queued.source, media.source));
             const count = playback.queue.filter((video) => video.queue.ip === userIp).length;
 
             if (existing) {
                 sendOnly('status', { text: `'${existing.details.title}' is already queued` }, user.userId);
-            } else if (count >= limit) {
+            } else if (count >= opts.perUserQueueLimit) {
                 sendOnly('status', { text: `you already have ${count} videos in the queue` }, user.userId);
             } else {
-                const media = await youtube.details(videoId);
                 playback.queueMedia(media, { userId: user.userId, ip: userIp });
             }
         }
 
-        messaging.setHandler('youtube', (message: any) => tryQueueYoutubeById(message.videoId));
+        async function tryQueueArchiveByPath(path: string) {
+            tryQueueMedia(await archiveOrgToPlayableHTTP(path));
+        }
 
+        async function tryQueueYoutubeById(videoId: string) {
+            tryQueueMedia(await youtube.details(videoId));
+        }
+
+        messaging.setHandler('youtube', (message: any) => tryQueueYoutubeById(message.videoId));
+        messaging.setHandler('archive', (message: any) => tryQueueArchiveByPath(message.path));
+        
         messaging.setHandler('search', (message: any) => {
             const { query } = message;
 
