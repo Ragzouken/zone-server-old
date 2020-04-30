@@ -1,17 +1,28 @@
 import { EventEmitter } from 'events';
 import { performance } from 'perf_hooks';
 import { copy } from './utility';
-import youtube, { YoutubeVideo } from './youtube';
+
+export type PlayableSource = { type: string };
+
+export interface PlayableMetadata {
+    title: string;
+    duration: number;
+}
+
+export interface PlayableMedia<TSource extends PlayableSource = PlayableSource> {
+    source: TSource;
+    details: PlayableMetadata;
+}
 
 export type PlaybackState = {
-    current: YoutubeVideo | undefined;
-    queue: YoutubeVideo[];
+    current: PlayableMedia | undefined;
+    queue: PlayableMedia[];
     time: number;
 };
 
 export default class Playback extends EventEmitter {
-    public currentVideo: YoutubeVideo | undefined = undefined;
-    public queue: YoutubeVideo[] = [];
+    public currentMedia: PlayableMedia | undefined = undefined;
+    public queue: PlayableMedia[] = [];
 
     private currentBeginTime: number = 0;
     private currentEndTime: number = 0;
@@ -19,32 +30,26 @@ export default class Playback extends EventEmitter {
 
     constructor() {
         super();
-        this.clearVideo();
+        this.clearMedia();
     }
 
     copyState(): PlaybackState {
         return {
-            current: this.currentVideo,
+            current: this.currentMedia,
             queue: this.queue,
             time: this.currentTime,
         };
     }
 
     loadState(data: PlaybackState) {
-        if (data.current) this.setVideo(data.current, data.time / 1000);
-        data.queue.forEach((video) => this.queueYoutube(video));
+        if (data.current) this.setMedia(data.current, data.time);
+        data.queue.forEach((media) => this.queueMedia(media));
     }
 
-    async queueYoutube(video: YoutubeVideo) {
-        this.queue.push(video);
-        this.emit('queue', video);
+    queueMedia(media: PlayableMedia) {
+        this.queue.push(media);
+        this.emit('queue', media);
         this.check();
-    }
-
-    async queueYoutubeById(videoId: string, meta: unknown) {
-        const details = await youtube.details(videoId);
-        details.meta = meta;
-        this.queueYoutube(details);
     }
 
     get playing() {
@@ -61,18 +66,18 @@ export default class Playback extends EventEmitter {
 
     skip() {
         const next = this.queue.shift();
-        if (next) this.playVideo(next);
-        else this.clearVideo();
+        if (next) this.playMedia(next);
+        else this.clearMedia();
     }
 
-    private playVideo(video: YoutubeVideo) {
-        this.setVideo(video, 0);
+    private playMedia(media: PlayableMedia) {
+        this.setMedia(media, 0);
     }
 
-    private clearVideo() {
-        if (this.currentVideo) this.emit('stop');
+    private clearMedia() {
+        if (this.currentMedia) this.emit('stop');
         this.setTime(0);
-        this.currentVideo = undefined;
+        this.currentMedia = undefined;
     }
 
     private check() {
@@ -84,10 +89,10 @@ export default class Playback extends EventEmitter {
         }
     }
 
-    private setVideo(video: YoutubeVideo, startSeconds = 0) {
-        this.currentVideo = video;
-        this.emit('play', copy(video));
-        this.setTime(video.duration * 1000, startSeconds * 1000);
+    private setMedia(media: PlayableMedia, time = 0) {
+        this.currentMedia = media;
+        this.setTime(media.details.duration, time);
+        this.emit('play', copy(media));
     }
 
     private setTime(duration: number, time = 0) {

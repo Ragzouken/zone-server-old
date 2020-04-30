@@ -12,14 +12,14 @@ function socketAddress(server: Server) {
     return `ws://localhost:${address.port}/zone`;
 }
 
-async function using<T>(resource: T, cleanup: (resource: T) => void, action: (resource: T) => Promise<void>) {
-    await action(resource).finally(() => cleanup(resource));
-}
-
 async function server(options: Partial<HostOptions>, callback: (server: TestServer) => Promise<void>) {
     const server = new TestServer(options);
-    await once(server.server, 'listening');
-    await using(server, (server) => server.dispose(), callback);
+    try {
+        await once(server.server, 'listening');
+        await callback(server);
+    } finally {
+        server.dispose();
+    }
 }
 
 class TestServer {

@@ -196,8 +196,8 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         sendOnly('users', { names, users }, user.userId);
         sendOnly('queue', { videos: playback.queue }, user.userId);
 
-        if (playback.currentVideo) {
-            const video = copy(playback.currentVideo);
+        if (playback.currentMedia) {
+            const video = copy(playback.currentMedia);
             video.time = playback.currentTime;
             sendOnly('youtube', video, user.userId);
         }
@@ -218,7 +218,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
 
         messaging.setHandler('resync', () => {
             if (playback.playing) {
-                const video = copy(playback.currentVideo);
+                const video = copy(playback.currentMedia);
                 video.time = playback.currentTime;
                 sendOnly('youtube', video, user.userId);
             } else {
@@ -226,32 +226,34 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
             }
         });
 
-        function tryQueue(videoId: string) {
-            const existing = playback.queue.find((video) => video.videoId === videoId);
+        async function tryQueueYoutube(videoId: string) {
+            const youtubes = playback.queue.filter((media) => media.source.type === 'youtube') as YoutubeVideo[];
+            const existing = youtubes.find((video) => video.source.videoId === videoId);
             const limit = 3;
             const count = playback.queue.filter((video) => video.meta.ip === userIp).length;
 
             if (existing) {
-                sendOnly('status', { text: `'${existing.title}' is already queued` }, user.userId);
+                sendOnly('status', { text: `'${existing.details.title}' is already queued` }, user.userId);
             } else if (count >= limit) {
                 sendOnly('status', { text: `you already have ${count} videos in the queue` }, user.userId);
             } else {
-                playback.queueYoutubeById(videoId, { userId: user.userId, ip: userIp });
+                const media = await youtube.details(videoId);
+                playback.queueMedia(media);// { userId: user.userId, ip: userIp });
             }
         }
 
-        messaging.setHandler('youtube', (message: any) => tryQueue(message.videoId));
+        messaging.setHandler('youtube', (message: any) => tryQueueYoutube(message.videoId));
 
         messaging.setHandler('search', (message: any) => {
             const { query } = message;
             youtube.search(query).then((results) => {
-                if (message.lucky) tryQueue(results[0].videoId);
+                if (message.lucky) tryQueueYoutube(results[0].videoId);
                 else sendOnly('search', { query, results }, user.userId);
             });
         });
 
         messaging.setHandler('skip', (message: any) => {
-            if (message.videoId !== playback.currentVideo?.videoId) return;
+            if (message.videoId !== playback.currentMedia?.videoId) return;
 
             if (opts.skipPassword && message.password === opts.skipPassword) {
                 playback.skip();
@@ -260,7 +262,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
                 const current = skips.size;
                 const target = Math.ceil(zone.users.size * opts.voteSkipThreshold);
                 if (current >= target) {
-                    sendAll('status', { text: `voted to skip ${playback.currentVideo?.title}` });
+                    sendAll('status', { text: `voted to skip ${playback.currentMedia?.title}` });
                     playback.skip();
                 } else {
                     sendAll('status', { text: `${current} of ${target} votes to skip` });
@@ -285,12 +287,12 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         });
 
         messaging.setHandler('error', (message: any) => {
-            if (!playback.currentVideo || message.videoId !== playback.currentVideo.videoId) return;
+            if (!playback.currentMedia || message.videoId !== playback.currentMedia.videoId) return;
             if (!user.name) return;
             errors.add(user.userId);
             if (errors.size >= Math.floor(zone.users.size * opts.errorSkipThreshold)) {
                 sendAll('status', {
-                    text: `skipping unplayable video ${playback.currentVideo.title}`,
+                    text: `skipping unplayable video ${playback.currentMedia.title}`,
                 });
                 playback.skip();
             }

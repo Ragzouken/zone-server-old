@@ -1,15 +1,20 @@
-import youtube, { getTitleDirect, Youtube } from '../youtube';
-import { YOUTUBE_VIDEOS, DAY_YOUTUBE_VIDEO } from './test-data';
+import { getTitleDirect, Youtube, YoutubeVideo } from '../youtube';
+import { YOUTUBE_VIDEOS } from './test-data';
 
-test.each(YOUTUBE_VIDEOS)('getTitleDirect', async ({ videoId, title }) => {
-    expect(await getTitleDirect(videoId)).toEqual(title);
+const FAKE_VIDEO: YoutubeVideo = {
+    source: { type: 'youtube', videoId: '' },
+    details: { title: 'fake video', duration: 1000 },
+};
+
+test.each(YOUTUBE_VIDEOS)('getTitleDirect', async (knownVideo) => {
+    const title = await getTitleDirect(knownVideo.source.videoId);
+    expect(title).toEqual(knownVideo.details.title);
 });
 
-test.each(YOUTUBE_VIDEOS)('youtube.details', async ({ videoId, title, duration }) => {
+test.each(YOUTUBE_VIDEOS)('youtube.details', async (knownVideo) => {
     const youtube = new Youtube();
-    const details = await youtube.details(videoId);
-    details.thumbnail = undefined;
-    expect(details).toEqual({ videoId, title, duration });
+    const details = await youtube.details(knownVideo.source.videoId);
+    expect(details).toEqual(knownVideo);
 });
 
 it('throws exception for unobtainable details', async () => {
@@ -21,22 +26,24 @@ it('throws exception for unobtainable details', async () => {
 it('loads copied state', async () => {
     const youtube1 = new Youtube();
     const youtube2 = new Youtube();
-    youtube1.addVideo(DAY_YOUTUBE_VIDEO);
+
+    const video = YOUTUBE_VIDEOS[0];
+    youtube1.addVideo(video);
     youtube2.loadState(youtube1.copyState());
-    expect(await youtube2.details(DAY_YOUTUBE_VIDEO.videoId)).toEqual(DAY_YOUTUBE_VIDEO);
+    expect(await youtube2.details(video.source.videoId)).toEqual(video);
 });
 
 it('can copy empty state', async () => {
     const youtube1 = new Youtube();
     const youtube2 = new Youtube();
-    youtube2.addVideo(DAY_YOUTUBE_VIDEO);
+    youtube2.addVideo(FAKE_VIDEO);
     youtube2.loadState(youtube1.copyState());
-    const check = youtube2.details(DAY_YOUTUBE_VIDEO.videoId);
+    const check = youtube2.details(FAKE_VIDEO.source.videoId);
     await expect(check).rejects.toThrow(Error);
 });
 
 it('remembers queried videos', async () => {
     const youtube = new Youtube();
-    for (const video of YOUTUBE_VIDEOS) await youtube.details(video.videoId);
+    for (const video of YOUTUBE_VIDEOS) await youtube.details(video.source.videoId);
     expect(youtube.copyState().videos.length).toBeGreaterThanOrEqual(YOUTUBE_VIDEOS.length);
 });

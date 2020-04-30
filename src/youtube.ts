@@ -1,12 +1,7 @@
 import { fetchDom, timeToSeconds } from './utility';
+import { PlayableMedia } from './playback';
 
-export type YoutubeVideo = {
-    videoId: string;
-    duration: number;
-    title: string;
-    thumbnail?: string;
-    meta?: any;
-};
+export type YoutubeVideo = PlayableMedia<{ type: 'youtube'; videoId: string }>;
 
 export type YoutubeState = {
     videos: YoutubeVideo[];
@@ -27,7 +22,7 @@ export class Youtube {
     }
 
     public addVideo(video: YoutubeVideo) {
-        this.cache.set(video.videoId, video);
+        this.cache.set(video.source.videoId, video);
     }
 
     public async search(query: string): Promise<YoutubeVideo[]> {
@@ -79,14 +74,7 @@ export async function search(query: string): Promise<YoutubeVideo[]> {
         const time = video.querySelector('.video-time');
         if (!time) return;
 
-        const duration = timeToSeconds(time.innerHTML);
-        const thumbImg = video.querySelector('img');
-
-        let thumbnail: string | undefined;
-        if (thumbImg) {
-            const thumbSrc = thumbImg.getAttribute('src')!.split('?')[0];
-            thumbnail = thumbSrc.includes('pixel') ? undefined : thumbSrc;
-        }
+        const duration = timeToSeconds(time.innerHTML) * 1000;
 
         const link = video.querySelector('.yt-uix-tile-link');
         if (!link) return;
@@ -96,7 +84,11 @@ export async function search(query: string): Promise<YoutubeVideo[]> {
         if (!title || !url) return;
 
         const videoId = url.split('?v=')[1];
-        results.push({ videoId, title, duration, thumbnail });
+
+        results.push({
+            source: { type: 'youtube', videoId },
+            details: { title, duration },
+        });
     });
 
     return results;

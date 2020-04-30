@@ -1,30 +1,27 @@
-import { sleep } from '../utility';
-import Playback from '../playback';
-import { YOUTUBE_VIDEOS, TINY_YOUTUBE_VIDEO, DAY_YOUTUBE_VIDEO } from './test-data';
-import { YoutubeVideo } from '../youtube';
+import Playback, { PlayableMedia } from '../playback';
+import { TINY_MEDIA, DAY_MEDIA } from './test-data';
+import { once } from 'events';
 
-function waitTime(video: YoutubeVideo) {
-    return video.duration * 1000 * 2 + 1000;
-}
+const MEDIA: PlayableMedia[] = [TINY_MEDIA, DAY_MEDIA];
 
 it('plays the first item queued', () => {
     const playback = new Playback();
-    YOUTUBE_VIDEOS.forEach((video) => playback.queueYoutube(video));
-    expect(playback.currentVideo).toEqual(YOUTUBE_VIDEOS[0]);
+    MEDIA.forEach((media) => playback.queueMedia(media));
+    expect(playback.currentMedia).toEqual(MEDIA[0]);
 });
 
 it('removes the playing item from the queue', () => {
     const playback = new Playback();
-    YOUTUBE_VIDEOS.forEach((video) => playback.queueYoutube(video));
-    expect(playback.queue).toEqual(YOUTUBE_VIDEOS.slice(1));
+    MEDIA.forEach((media) => playback.queueMedia(media));
+    expect(playback.queue).toEqual(MEDIA.slice(1));
 });
 
 test('loading copied state', () => {
     const playback = new Playback();
     const other = new Playback();
-    YOUTUBE_VIDEOS.forEach((video) => playback.queueYoutube(video));
+    MEDIA.forEach((media) => playback.queueMedia(media));
     other.loadState(playback.copyState());
-    expect(other.currentVideo).toEqual(playback.currentVideo);
+    expect(other.currentMedia).toEqual(playback.currentMedia);
     expect(other.queue).toEqual(playback.queue);
 });
 
@@ -32,59 +29,49 @@ it('can copy empty state', () => {
     const playback = new Playback();
     const other = new Playback();
     other.loadState(playback.copyState());
-    expect(other.currentVideo).toEqual(playback.currentVideo);
+    expect(other.currentMedia).toEqual(playback.currentMedia);
     expect(other.queue).toEqual(playback.queue);
 });
 
 it('continues the queue when a video ends', async () => {
     const playback = new Playback();
-    playback.queueYoutube(TINY_YOUTUBE_VIDEO);
-    playback.queueYoutube(DAY_YOUTUBE_VIDEO);
-    expect(playback.currentVideo).toBe(TINY_YOUTUBE_VIDEO);
-    await sleep(waitTime(TINY_YOUTUBE_VIDEO));
-    expect(playback.currentVideo).toBe(DAY_YOUTUBE_VIDEO);
+    playback.queueMedia(TINY_MEDIA);
+    playback.queueMedia(DAY_MEDIA);
+    expect(playback.currentMedia).toBe(TINY_MEDIA);
+    await once(playback, 'play');
+    expect(playback.currentMedia).toBe(DAY_MEDIA);
 });
 
-it('stops when last video ends', async () => {
+it('stops when last item ends', async () => {
     const playback = new Playback();
-    const onStop = jest.fn();
-    playback.on('stop', onStop);
-    playback.queueYoutube(TINY_YOUTUBE_VIDEO);
-    await sleep(waitTime(TINY_YOUTUBE_VIDEO));
-    expect(onStop.mock.calls.length).toBe(1);
+    const stopped = once(playback, 'stop');
+    playback.queueMedia(TINY_MEDIA);
+    await stopped;
 });
 
-it('continues the queue when a video skipped', () => {
+it('stops when last item skipped', async () => {
     const playback = new Playback();
-    playback.queueYoutube(TINY_YOUTUBE_VIDEO);
-    YOUTUBE_VIDEOS.forEach((video) => playback.queueYoutube(video));
-    expect(playback.currentVideo).toBe(TINY_YOUTUBE_VIDEO);
+    const stopped = once(playback, 'stop');
+    playback.queueMedia(DAY_MEDIA);
     playback.skip();
-    expect(playback.currentVideo).toBe(YOUTUBE_VIDEOS[0]);
+    await stopped;
 });
 
-it('stops when last video skipped', () => {
+it('continues the queue when an item is skipped', async () => {
     const playback = new Playback();
-    const onStop = jest.fn();
-    playback.on('stop', onStop);
-    playback.queueYoutube(TINY_YOUTUBE_VIDEO);
+    playback.queueMedia(TINY_MEDIA);
+    MEDIA.forEach((video) => playback.queueMedia(video));
+    expect(playback.currentMedia).toBe(TINY_MEDIA);
     playback.skip();
-    expect(onStop.mock.calls.length).toBe(1);
+    expect(playback.currentMedia).toBe(MEDIA[0]);
 });
 
-it('queues correct youtube by id', async () => {
-    const playback = new Playback();
-    await playback.queueYoutubeById(YOUTUBE_VIDEOS[0].videoId, {});
-    const { videoId, title, duration } = playback.currentVideo!;
-    expect({ videoId, title, duration }).toEqual(YOUTUBE_VIDEOS[0]);
-});
-
-it('continues the queue when a video ends after loading state', async () => {
+test('queue proceeds normally after loading state', async () => {
     const playback = new Playback();
     const other = new Playback();
-    playback.queueYoutube(TINY_YOUTUBE_VIDEO);
-    playback.queueYoutube(DAY_YOUTUBE_VIDEO);
+    playback.queueMedia(TINY_MEDIA);
+    playback.queueMedia(DAY_MEDIA);
     other.loadState(playback.copyState());
-    await sleep(waitTime(TINY_YOUTUBE_VIDEO));
-    expect(other.currentVideo).toBe(DAY_YOUTUBE_VIDEO);
+    await once(other, 'play');
+    expect(other.currentMedia).toBe(DAY_MEDIA);
 });
