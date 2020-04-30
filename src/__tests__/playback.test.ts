@@ -1,6 +1,15 @@
 import Playback, { PlayableMedia } from '../playback';
-import { TINY_MEDIA, DAY_MEDIA } from './test-data';
 import { once } from 'events';
+
+const TINY_MEDIA: PlayableMedia = {
+    source: { type: 'null' },
+    details: { title: 'tiny', duration: 100 },
+};
+
+const DAY_MEDIA: PlayableMedia = {
+    source: { type: 'null' },
+    details: { title: 'day', duration: 24 * 60 * 60 * 1000 },
+};
 
 const MEDIA: PlayableMedia[] = [TINY_MEDIA, DAY_MEDIA];
 
