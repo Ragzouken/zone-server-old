@@ -37,13 +37,35 @@ class TestServer {
         return socket;
     }
 
+    public async messaging() {
+        return new WebSocketMessaging(await this.socket());
+    }
+
     public dispose() {
         this.sockets.forEach((socket) => socket.close());
         this.server.close();
     }
 }
 
-async function waitResponse(
+
+async function response(messaging: WebSocketMessaging, type: string): Promise<any> {
+    return new Promise((resolve) => {
+        messaging.setHandler(type, (message) => {
+            messaging.setHandler(type, () => {});
+            resolve(message);
+        });
+    });
+}
+
+function join(messaging: WebSocketMessaging, message: any = {}) {
+    return new Promise<Message>((resolve, reject) => {
+        messaging.setHandler('assign', resolve);
+        messaging.setHandler('reject', () => reject(new Error()));
+        messaging.send('join', Object.assign({ name: 'anonymous' }, message));
+    });
+}
+
+async function exchange(
     messaging: WebSocketMessaging,
     sendType: string,
     sendMessage: any,
@@ -66,35 +88,35 @@ test('can connect to a server', async () => {
 
 test('can join unpassworded server', async () => {
     await server({}, async (server) => {
-        const messaging = new WebSocketMessaging(await server.socket());
-        await waitResponse(messaging, 'join', { name: 'test' }, 'assign');
+        const messaging = await server.messaging();
+        await join(messaging);
     });
 });
 
 test("can't join passworded server without password", async () => {
     const password = 'riverdale';
     await server({ joinPassword: password }, async (server) => {
-        const messaging = new WebSocketMessaging(await server.socket());
-        await waitResponse(messaging, 'join', { name: 'test' }, 'reject');
+        const messaging = await server.messaging();
+        await expect(join(messaging)).rejects.toThrow(Error);
     });
 });
 
 test('can join passworded server with password', async () => {
     const password = 'riverdale';
     await server({ joinPassword: password }, async (server) => {
-        const messaging = new WebSocketMessaging(await server.socket());
-        await waitResponse(messaging, 'join', { name: 'test', password }, 'assign');
+        const messaging = await server.messaging();
+        await join(messaging, { password });
     });
 });
 
 test('can resume session with token', async () => {
     await server({}, async (server) => {
-        const messaging1 = new WebSocketMessaging(await server.socket());
-        const messaging2 = new WebSocketMessaging(await server.socket());
+        const messaging1 = await server.messaging();
+        const messaging2 = await server.messaging();
 
-        const assign1 = await waitResponse(messaging1, 'join', { name: 'test' }, 'assign');
+        const assign1 = await join(messaging1);
         messaging1.disconnect(3000);
-        const assign2 = await waitResponse(messaging2, 'join', { name: 'test', token: assign1.token }, 'assign');
+        const assign2 = await join(messaging2, { token: assign1.token });
 
         expect(assign2.userId).toEqual(assign1.userId);
         expect(assign2.token).toEqual(assign1.token);
@@ -103,8 +125,40 @@ test('can resume session with token', async () => {
 
 test('heartbeat response', async () => {
     await server({}, async (server) => {
-        const messaging = new WebSocketMessaging(await server.socket());
-        await waitResponse(messaging, 'join', { name: 'test '}, 'assign');
-        await waitResponse(messaging, 'heartbeat', {}, 'heartbeat');
+        const messaging = await server.messaging();
+        await join(messaging);
+        await exchange(messaging, 'heartbeat', {}, 'heartbeat');
+    });
+});
+
+test('server sends user list', async () => {
+    await server({}, async (server) => {
+        const name = 'user1';
+        const messaging1 = await server.messaging();
+        const messaging2 = await server.messaging();
+        const { userId } = await join(messaging1, { name });
+
+        const waitUsers = response(messaging2, 'users');
+        await join(messaging2);
+        const { users } = await waitUsers;
+        
+        expect(users[0]).toMatchObject({ userId, name });
+    });
+});
+
+test('server sends currently playing', async () => {
+    await server({}, async (server) => {
+        const messaging1 = await server.messaging();
+        const messaging2 = await server.messaging();
+        
+        await join(messaging1);
+        const video1 = await exchange(messaging1, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
+
+        const waiter = response(messaging2, 'play');
+        await join(messaging2);
+        const video2 = await waiter;
+
+        expect(video2.time).toBeGreaterThan(0);
+        expect(video2.item).toEqual(video1.item);
     });
 });

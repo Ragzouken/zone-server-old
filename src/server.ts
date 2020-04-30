@@ -252,9 +252,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
 
     function sendAllState(user: UserState) {
         const users = Array.from(zone.users.values());
-        const names = users.map((user) => [user.userId, user.name]);
-
-        sendOnly('users', { names, users }, user.userId);
+        sendOnly('users', { users }, user.userId);
         sendOnly('queue', { items: playback.queue }, user.userId);
         sendCurrent(user);
     }
