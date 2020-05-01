@@ -224,9 +224,9 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
             });
 
             if (resume) {
-                console.log('resume user', user.userId, userIp);
+                // console.log('resume user', user.userId, userIp);
             } else {
-                console.log('new user', user.userId, userIp);
+                // console.log('new user', user.userId, userIp);
             }
 
             sendAllState(user);
@@ -311,8 +311,8 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         });
 
         messaging.setHandler('reboot', (message: any) => {
-            const { master_key } = message;
-            if (opts.rebootPassword && master_key === opts.rebootPassword) {
+            const { password } = message;
+            if (opts.rebootPassword && password === opts.rebootPassword) {
                 save();
                 sendAll('status', { text: 'rebooting server' });
                 exec('git pull && refresh');

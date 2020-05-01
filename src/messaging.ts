@@ -30,7 +30,7 @@ export class WebSocketMessaging extends EventEmitter {
         try {
             this.websocket.send(json);
         } catch (e) {
-            console.log("couldn't send:", e);
+            // console.log("couldn't send:", e);
         }
     }
 

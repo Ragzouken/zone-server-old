@@ -6,6 +6,8 @@ import { AddressInfo } from 'net';
 
 import { host, HostOptions } from '../server';
 import WebSocketMessaging, { Message } from '../messaging';
+import { QueueItem } from '../playback';
+import { copy, sleep } from '../utility';
 
 function socketAddress(server: Server) {
     const address = server.address() as AddressInfo;
@@ -47,8 +49,9 @@ class TestServer {
     }
 }
 
-async function response(messaging: WebSocketMessaging, type: string): Promise<any> {
-    return new Promise((resolve) => {
+async function response(messaging: WebSocketMessaging, type: string, timeout?: number): Promise<any> {
+    return new Promise((resolve, reject) => {
+        if (timeout) setTimeout(() => reject('timeout'), timeout);
         messaging.setHandler(type, (message) => {
             messaging.setHandler(type, () => {});
             resolve(message);
@@ -79,35 +82,6 @@ async function exchange(
     });
 }
 
-test('can connect to a server', async () => {
-    await server({}, async (server) => {
-        const websocket = await server.socket();
-    });
-});
-
-test('can join unpassworded server', async () => {
-    await server({}, async (server) => {
-        const messaging = await server.messaging();
-        await join(messaging);
-    });
-});
-
-test("can't join passworded server without password", async () => {
-    const password = 'riverdale';
-    await server({ joinPassword: password }, async (server) => {
-        const messaging = await server.messaging();
-        await expect(join(messaging)).rejects.toMatchObject({ type: 'reject' });
-    });
-});
-
-test('can join passworded server with password', async () => {
-    const password = 'riverdale';
-    await server({ joinPassword: password }, async (server) => {
-        const messaging = await server.messaging();
-        await join(messaging, { password });
-    });
-});
-
 test('can resume session with token', async () => {
     await server({}, async (server) => {
         const messaging1 = await server.messaging();
@@ -130,51 +104,225 @@ test('heartbeat response', async () => {
     });
 });
 
-test('server sends user list', async () => {
-    await server({}, async (server) => {
-        const name = 'user1';
-        const messaging1 = await server.messaging();
-        const messaging2 = await server.messaging();
-        const { userId } = await join(messaging1, { name });
+describe('join open server', () => {
+    test('accepts no password', async () => {
+        await server({}, async (server) => {
+            const messaging = await server.messaging();
+            await join(messaging);
+        });
+    });
 
-        const waitUsers = response(messaging2, 'users');
-        await join(messaging2);
-        const { users } = await waitUsers;
-
-        expect(users[0]).toMatchObject({ userId, name });
+    test('accepts any password', async () => {
+        await server({}, async (server) => {
+            const messaging = await server.messaging();
+            await join(messaging, { password: 'old password' });
+        });
     });
 });
 
-test('server sends currently playing', async () => {
-    await server({}, async (server) => {
-        const messaging1 = await server.messaging();
-        const messaging2 = await server.messaging();
+describe('join closed server', () => {
+    test('rejects absent password', async () => {
+        const password = 'riverdale';
+        await server({ joinPassword: password }, async (server) => {
+            const messaging = await server.messaging();
+            const joining = join(messaging);
+            await expect(joining).rejects.toMatchObject({ type: 'reject' });
+        });
+    });
 
-        await join(messaging1);
-        const video1 = await exchange(messaging1, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
+    test('rejects incorrect password', async () => {
+        const password = 'riverdale';
+        await server({ joinPassword: password }, async (server) => {
+            const messaging = await server.messaging();
+            const joining = join(messaging, { password: 'wrong' });
+            await expect(joining).rejects.toMatchObject({ type: 'reject' });
+        });
+    });
 
-        const waiter = response(messaging2, 'play');
-        await join(messaging2);
-        const video2 = await waiter;
-
-        expect(video2.time).toBeGreaterThan(0);
-        expect(video2.item).toEqual(video1.item);
+    test('accepts correct password', async () => {
+        const password = 'riverdale';
+        await server({ joinPassword: password }, async (server) => {
+            const messaging = await server.messaging();
+            await join(messaging, { password });
+        });
     });
 });
 
-test('server sends leave messages', async () => {
+describe('join server', () => {
+    it('sends user list', async () => {
+        await server({}, async (server) => {
+            const name = 'user1';
+            const messaging1 = await server.messaging();
+            const messaging2 = await server.messaging();
+            const { userId } = await join(messaging1, { name });
+
+            const waitUsers = response(messaging2, 'users');
+            await join(messaging2);
+            const { users } = await waitUsers;
+
+            expect(users[0]).toMatchObject({ userId, name });
+        });
+    });
+
+    test('server sends name on join', async () => {
+        await server({}, async (server) => {
+            const name = 'baby yoda';
+            const messaging1 = await server.messaging();
+            const messaging2 = await server.messaging();
+
+            await join(messaging1);
+            const waiter = response(messaging1, 'name');
+            const { userId } = await join(messaging2, { name });
+            const message = await waiter;
+
+            expect(message.userId).toEqual(userId);
+            expect(message.name).toEqual(name);
+        });
+    });
+});
+
+describe('playback', () => {
+    it('sends currently playing on join', async () => {
+        await server({}, async (server) => {
+            const messaging1 = await server.messaging();
+            const messaging2 = await server.messaging();
+
+            await join(messaging1);
+            const video1 = await exchange(messaging1, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
+
+            const waiter = response(messaging2, 'play');
+            await join(messaging2);
+            const video2 = await waiter;
+
+            expect(video2.time).toBeGreaterThan(0);
+            expect(video2.item).toEqual(video1.item);
+        });
+    });
+
+    it.todo('sends empty play when all playback ends');
+
+    it("doesn't queue duplicate media", async () => {
+        await server({}, async (server) => {
+            const messaging = await server.messaging();
+
+            const message = { videoId: '2GjyNgQ4Dos' };
+
+            await join(messaging);
+            // queue it three times because currently playing doesn't count
+            await exchange(messaging, 'youtube', message, 'queue');
+            await exchange(messaging, 'youtube', message, 'queue');
+            const queue = response(messaging, 'queue', 200);
+            messaging.send('youtube', message);
+
+            await expect(queue).rejects.toEqual('timeout');
+        });
+    });
+
+    it("doesn't queue beyond limit", async () => {
+        await server({ perUserQueueLimit: 0 }, async (server) => {
+            const messaging = await server.messaging();
+
+            await join(messaging);
+            const queue = response(messaging, 'queue', 200);
+            messaging.send('youtube', { videoId: '2GjyNgQ4Dos' });
+
+            await expect(queue).rejects.toEqual('timeout');
+        });
+    });
+
+    it('skips with sufficient votes', async () => {
+        await server({ voteSkipThreshold: 1 }, async (server) => {
+            const messaging1 = await server.messaging();
+            const messaging2 = await server.messaging();
+
+            await join(messaging1);
+            await join(messaging2);
+
+            const waiter1 = response(messaging1, 'play');
+            const waiter2 = response(messaging2, 'play');
+
+            messaging1.send('youtube', { videoId: '2GjyNgQ4Dos' });
+
+            const { item }: { item: QueueItem } = await waiter1;
+            await waiter2;
+
+            const waiter = response(messaging1, 'play');
+            messaging1.send('skip', { source: item.media.source });
+            messaging2.send('skip', { source: item.media.source });
+
+            await waiter;
+        });
+    });
+
+    it('skips with sufficient errors', async () => {
+        await server({ voteSkipThreshold: 1 }, async (server) => {
+            const messaging1 = await server.messaging();
+            const messaging2 = await server.messaging();
+
+            await join(messaging1);
+            await join(messaging2);
+
+            const waiter1 = response(messaging1, 'play');
+            const waiter2 = response(messaging2, 'play');
+
+            messaging1.send('youtube', { videoId: '2GjyNgQ4Dos' });
+
+            const { item }: { item: QueueItem } = await waiter1;
+            await waiter2;
+
+            const waiter = response(messaging1, 'play');
+            messaging1.send('error', { source: item.media.source });
+            messaging2.send('error', { source: item.media.source });
+
+            await waiter;
+        });
+    });
+
+    it('skips with password', async () => {
+        const password = 'riverdale';
+        await server({ voteSkipThreshold: 2, skipPassword: password }, async (server) => {
+            const messaging = await server.messaging();
+
+            await join(messaging);
+            const { item } = await exchange(messaging, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
+
+            const waiter = response(messaging, 'play');
+            messaging.send('skip', { source: item.media.source, password });
+
+            await waiter;
+        });
+    });
+
+    it("doesn't skip incorrect video", async () => {
+        await server({}, async (server) => {
+            const messaging = await server.messaging();
+
+            await join(messaging);
+            const { item } = await exchange(messaging, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
+
+            const source = copy(item.media.source);
+            source.videoId = 'fake';
+
+            const skip = response(messaging, 'play', 200);
+            messaging.send('skip', { source: source });
+
+            await expect(skip).rejects.toEqual('timeout');
+        });
+    });
+});
+
+test('server sends leave on clean quit', async () => {
     await server({}, async (server) => {
-        const name = 'baby yoda';
         const messaging1 = await server.messaging();
         const messaging2 = await server.messaging();
 
-        const { userId } = await join(messaging1, { name });
+        const { userId: joinedId } = await join(messaging1);
         await join(messaging2);
 
         const waiter = response(messaging2, 'leave');
         messaging1.disconnect();
-        const leave = await waiter;
+        const { userId: leftId } = await waiter;
 
-        expect(leave.userId).toEqual(userId);
+        expect(joinedId).toEqual(leftId);
     });
 });
