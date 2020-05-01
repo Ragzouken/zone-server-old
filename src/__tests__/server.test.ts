@@ -7,7 +7,10 @@ import { AddressInfo } from 'net';
 import { host, HostOptions } from '../server';
 import WebSocketMessaging, { Message } from '../messaging';
 import { QueueItem } from '../playback';
-import { copy, sleep } from '../utility';
+import { copy } from '../utility';
+
+import { VIDEOS as YOUTUBE_VIDEOS } from './youtube.test';
+import { PATH_TO_MEDIA } from './archiveorg.test';
 
 function socketAddress(server: Server) {
     const address = server.address() as AddressInfo;
@@ -59,8 +62,9 @@ async function response(messaging: WebSocketMessaging, type: string, timeout?: n
     });
 }
 
-function join(messaging: WebSocketMessaging, message: any = {}) {
+function join(messaging: WebSocketMessaging, message: any = {}, timeout?: number) {
     return new Promise<Message>((resolve, reject) => {
+        if (timeout) setTimeout(() => reject('timeout'), timeout);
         messaging.setHandler('assign', resolve);
         messaging.setHandler('reject', reject);
         messaging.send('join', Object.assign({ name: 'anonymous' }, message));
@@ -149,6 +153,27 @@ describe('join closed server', () => {
 });
 
 describe('join server', () => {
+    test('assigns id and token', async () => {
+        await server({}, async (server) => {
+            const messaging = await server.messaging();
+
+            const { userId, token } = await join(messaging);
+
+            expect(userId).not.toBeUndefined();
+            expect(token).not.toBeUndefined();
+        });
+    });
+
+    test('ignores second join', async () => {
+        await server({}, async (server) => {
+            const messaging = await server.messaging();
+
+            await join(messaging);
+            const repeat = join(messaging, {}, 100);
+            await expect(repeat).rejects.toEqual('timeout');
+        });
+    });
+
     it('sends user list', async () => {
         await server({}, async (server) => {
             const name = 'user1';
@@ -192,6 +217,21 @@ describe('playback', () => {
 
             const waiter = response(messaging2, 'play');
             await join(messaging2);
+            const video2 = await waiter;
+
+            expect(video2.time).toBeGreaterThan(0);
+            expect(video2.item).toEqual(video1.item);
+        });
+    });
+
+    it('sends currently playing on resync', async () => {
+        await server({}, async (server) => {
+            const messaging = await server.messaging();
+            await join(messaging);
+            const video1 = await exchange(messaging, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
+
+            const waiter = response(messaging, 'play');
+            messaging.send('resync', {});
             const video2 = await waiter;
 
             expect(video2.time).toBeGreaterThan(0);
@@ -293,6 +333,34 @@ describe('playback', () => {
         });
     });
 
+    it("doesn't skip with insufficient votes", async () => {
+        await server({ voteSkipThreshold: 2 }, async (server) => {
+            const messaging = await server.messaging();
+
+            await join(messaging);
+            const { item } = await exchange(messaging, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
+
+            const skip = response(messaging, 'play', 200);
+            messaging.send('skip', { source: item.media.source });
+
+            await expect(skip).rejects.toEqual('timeout');
+        });
+    });
+
+    it("doesn't skip with insufficient errors", async () => {
+        await server({ errorSkipThreshold: 2 }, async (server) => {
+            const messaging = await server.messaging();
+
+            await join(messaging);
+            const { item } = await exchange(messaging, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
+
+            const skip = response(messaging, 'play', 200);
+            messaging.send('error', { source: item.media.source });
+
+            await expect(skip).rejects.toEqual('timeout');
+        });
+    });
+    
     it("doesn't skip incorrect video", async () => {
         await server({}, async (server) => {
             const messaging = await server.messaging();
@@ -304,9 +372,35 @@ describe('playback', () => {
             source.videoId = 'fake';
 
             const skip = response(messaging, 'play', 200);
-            messaging.send('skip', { source: source });
+            messaging.send('skip', { source });
 
             await expect(skip).rejects.toEqual('timeout');
+        });
+    });
+});
+
+describe('media sources', () => {
+    it('can play archive item', async () => {
+        await server({}, async (server) => {
+            const { path, media } = PATH_TO_MEDIA[0];
+
+            const messaging = await server.messaging();
+            await join(messaging);
+            const message = await exchange(messaging, 'archive', { path }, 'play');
+
+            expect(message.item.media).toEqual(media);
+        });
+    });
+
+    it('can play youtube video', async () => {
+        await server({}, async (server) => {
+            const source = YOUTUBE_VIDEOS[0].source;
+
+            const messaging = await server.messaging();
+            await join(messaging);
+            const message = await exchange(messaging, 'youtube', { videoId: source.videoId }, 'play');
+
+            expect(message.item.media.source).toEqual(source);
         });
     });
 });

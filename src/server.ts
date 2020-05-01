@@ -141,8 +141,8 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
     }
 
     function isUserConnectionless(user: UserState) {
-        const connections = userToConnections.get(user)!;
-        const connectionless = connections.size === 0;
+        const connections = userToConnections.get(user);
+        const connectionless = !connections || connections.size === 0;
         return connectionless;
     }
 
@@ -154,8 +154,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
     }
 
     function voteError(source: PlayableSource, user: UserState) {
-        if (!playback.currentItem) return;
-        if (!objEqual(source, playback.currentItem.media.source)) return;
+        if (!playback.currentItem || !objEqual(source, playback.currentItem.media.source)) return;
 
         errors.add(user.userId);
         if (errors.size >= Math.floor(zone.users.size * opts.errorSkipThreshold)) {
@@ -164,8 +163,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
     }
 
     function voteSkip(source: PlayableSource, user: UserState, password?: string) {
-        if (!playback.currentItem) return;
-        if (!objEqual(source, playback.currentItem.media.source)) return;
+        if (!playback.currentItem || !objEqual(source, playback.currentItem.media.source)) return;
 
         if (opts.skipPassword && password === opts.skipPassword) {
             playback.skip();

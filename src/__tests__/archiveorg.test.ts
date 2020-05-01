@@ -11,7 +11,7 @@ const PRISONER_MEDIA: PlayableMedia<HTTPSource> = {
     source: { type: 'http', src: 'https://archive.org/download/The_Prisoner/ThePrisoner01Arrival.mp4' },
 };
 
-const PATH_TO_MEDIA = [
+export const PATH_TO_MEDIA = [
     { path: 'The_Prisoner/ThePrisoner01Arrival.mp4', media: PRISONER_MEDIA },
     { path: 'threads_201712/threads.mp4', media: THREADS_MEDIA },
     { path: 'threads_201712', media: THREADS_MEDIA },

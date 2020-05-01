@@ -1,6 +1,6 @@
 import { getTitleDirect, Youtube, YoutubeVideo } from '../youtube';
 
-const VIDEOS: YoutubeVideo[] = [
+export const VIDEOS: YoutubeVideo[] = [
     {
         source: { type: 'youtube', videoId: '5dA5ynP-j-I' },
         details: { title: 'Tetris (CD-i) Music - Level 9', duration: 246000 },
@@ -11,7 +11,7 @@ const VIDEOS: YoutubeVideo[] = [
     },
 ];
 
-const FAKE_VIDEO: YoutubeVideo = {
+export const FAKE_VIDEO: YoutubeVideo = {
     source: { type: 'youtube', videoId: '' },
     details: { title: 'fake video', duration: 1000 },
 };
