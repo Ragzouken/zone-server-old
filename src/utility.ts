@@ -1,11 +1,15 @@
 import fetch from 'node-fetch';
 import * as HTMLParser from 'node-html-parser';
 
+export function objEqual(a: any, b: any) {
+    return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function sleep(milliseconds: number) {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-export function copy<T>(object: T) {
+export function copy<T>(object: T): T {
     return JSON.parse(JSON.stringify(object));
 }
 
@@ -17,6 +21,11 @@ export function timeToSeconds(time: string): number {
     const hours = parseInt(parts.pop() || '0', 10);
 
     return seconds + minutes * 60 + hours * 3600;
+}
+
+export async function fetchJson(url: string) {
+    const json = await fetch(url).then((r) => r.text());
+    return JSON.parse(json);
 }
 
 export async function fetchDom(url: string): Promise<HTMLParser.HTMLElement> {

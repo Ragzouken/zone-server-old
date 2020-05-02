@@ -4,12 +4,13 @@ import * as WebSocket from 'ws';
 import * as low from 'lowdb';
 import { exec } from 'child_process';
 
-import { copy } from './utility';
 import youtube, { YoutubeVideo } from './youtube';
-import Playback from './playback';
+import Playback, { PlayableMedia, QueueItem, PlayableSource } from './playback';
 import Messaging from './messaging';
 import { ZoneState, UserId, UserState } from './zone';
 import { nanoid } from 'nanoid';
+import { archiveOrgToPlayableHTTP } from './archiveorg';
+import { objEqual, copy } from './utility';
 
 const SECONDS = 1000;
 const tileLengthLimit = 12;
@@ -22,6 +23,7 @@ export type HostOptions = {
     nameLengthLimit: number;
     chatLengthLimit: number;
 
+    perUserQueueLimit: number;
     voteSkipThreshold: number;
     errorSkipThreshold: number;
 
@@ -38,6 +40,7 @@ export const DEFAULT_OPTIONS: HostOptions = {
     nameLengthLimit: 16,
     chatLengthLimit: 160,
 
+    perUserQueueLimit: 3,
     voteSkipThreshold: 0.6,
     errorSkipThreshold: 0.4,
 };
@@ -82,14 +85,29 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
     let lastUserId = 0;
     const tokenToUser = new Map<string, UserState>();
     const connections = new Map<UserId, Messaging>();
-    const playback = new Playback();
+    const playback = new Playback(1000);
     const zone = new ZoneState();
 
     load();
 
-    playback.on('queue', (details: YoutubeVideo) => sendAll('queue', { videos: [details] }));
-    playback.on('play', (details: YoutubeVideo) => sendAll('youtube', details));
-    playback.on('stop', () => sendAll('youtube', {}));
+    function queueToDetails(item: QueueItem) {
+        let videoId = 'invalid';
+
+        try {
+            videoId = (item.media as YoutubeVideo).source.videoId;
+        } catch (e) {}
+
+        return {
+            videoId,
+            title: item.media.details.title,
+            duration: item.media.details.duration / 1000,
+            meta: { userId: item.info.userId },
+        };
+    }
+
+    playback.on('queue', (item: QueueItem) => sendAll('queue', { items: [item] }));
+    playback.on('play', (item: QueueItem) => sendAll('play', { item: sanitiseItem(item) }));
+    playback.on('stop', () => sendAll('play', {}));
 
     playback.on('queue', save);
     playback.on('play', save);
@@ -123,8 +141,8 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
     }
 
     function isUserConnectionless(user: UserState) {
-        const connections = userToConnections.get(user)!;
-        const connectionless = connections.size === 0;
+        const connections = userToConnections.get(user);
+        const connectionless = !connections || connections.size === 0;
         return connectionless;
     }
 
@@ -133,6 +151,37 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         zone.users.delete(user.userId);
         connections.delete(user.userId);
         userToConnections.delete(user);
+    }
+
+    function voteError(source: PlayableSource, user: UserState) {
+        if (!playback.currentItem || !objEqual(source, playback.currentItem.media.source)) return;
+
+        errors.add(user.userId);
+        if (errors.size >= Math.floor(zone.users.size * opts.errorSkipThreshold)) {
+            skip(`skipping unplayable video ${playback.currentItem.media.details.title}`);
+        }
+    }
+
+    function voteSkip(source: PlayableSource, user: UserState, password?: string) {
+        if (!playback.currentItem || !objEqual(source, playback.currentItem.media.source)) return;
+
+        if (opts.skipPassword && password === opts.skipPassword) {
+            playback.skip();
+        } else {
+            skips.add(user.userId);
+            const current = skips.size;
+            const target = Math.ceil(zone.users.size * opts.voteSkipThreshold);
+            if (current >= target) {
+                skip(`voted to skip ${playback.currentItem.media.details.title}`);
+            } else {
+                sendAll('status', { text: `${current} of ${target} votes to skip` });
+            }
+        }
+    }
+
+    function skip(message?: string) {
+        if (message) sendAll('status', { text: message });
+        playback.skip();
     }
 
     function waitJoin(websocket: WebSocket, userIp: unknown) {
@@ -173,9 +222,9 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
             });
 
             if (resume) {
-                console.log('resume user', user.userId, userIp);
+                // console.log('resume user', user.userId, userIp);
             } else {
-                console.log('new user', user.userId, userIp);
+                // console.log('new user', user.userId, userIp);
             }
 
             sendAllState(user);
@@ -189,18 +238,26 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         sendAll('name', { name: user.name, userId: user.userId });
     }
 
+    function sanitiseItem(item: QueueItem) {
+        const sanitised = copy(item);
+        delete sanitised.info.ip;
+        return sanitised;
+    }
+    
+    function sendCurrent(user: UserState) {
+        if (playback.currentItem) {
+            const item = sanitiseItem(playback.currentItem);
+            sendOnly('play', { item, time: playback.currentTime }, user.userId);
+        } else {
+            sendOnly('play', {}, user.userId);
+        }
+    }
+
     function sendAllState(user: UserState) {
         const users = Array.from(zone.users.values());
-        const names = users.map((user) => [user.userId, user.name]);
-
-        sendOnly('users', { names, users }, user.userId);
-        sendOnly('queue', { videos: playback.queue }, user.userId);
-
-        if (playback.currentVideo) {
-            const video = copy(playback.currentVideo);
-            video.time = playback.currentTime;
-            sendOnly('youtube', video, user.userId);
-        }
+        sendOnly('users', { users }, user.userId);
+        sendOnly('queue', { items: playback.queue }, user.userId);
+        sendCurrent(user);
     }
 
     function bindMessagingToUser(user: UserState, messaging: Messaging, userIp: unknown) {
@@ -216,56 +273,37 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
 
         messaging.setHandler('name', (message: any) => setUserName(user, message.name));
 
-        messaging.setHandler('resync', () => {
-            if (playback.playing) {
-                const video = copy(playback.currentVideo);
-                video.time = playback.currentTime;
-                sendOnly('youtube', video, user.userId);
-            } else {
-                sendOnly('youtube', {}, user.userId);
-            }
-        });
+        messaging.setHandler('resync', () => sendCurrent(user));
 
-        function tryQueue(videoId: string) {
-            const existing = playback.queue.find((video) => video.videoId === videoId);
-            const limit = 3;
-            const count = playback.queue.filter((video) => video.meta.ip === userIp).length;
+        async function tryQueueMedia(media: PlayableMedia) {
+            const existing = playback.queue.find((queued) => objEqual(queued.media.source, media.source))?.media;
+            const count = playback.queue.filter((item) => item.info.ip === userIp).length;
 
             if (existing) {
-                sendOnly('status', { text: `'${existing.title}' is already queued` }, user.userId);
-            } else if (count >= limit) {
+                sendOnly('status', { text: `'${existing.details.title}' is already queued` }, user.userId);
+            } else if (count >= opts.perUserQueueLimit) {
                 sendOnly('status', { text: `you already have ${count} videos in the queue` }, user.userId);
             } else {
-                playback.queueYoutubeById(videoId, { userId: user.userId, ip: userIp });
+                playback.queueMedia(media, { userId: user.userId, ip: userIp });
             }
         }
 
-        messaging.setHandler('youtube', (message: any) => tryQueue(message.videoId));
+        async function tryQueueArchiveByPath(path: string) {
+            tryQueueMedia(await archiveOrgToPlayableHTTP(path));
+        }
+
+        async function tryQueueYoutubeById(videoId: string) {
+            tryQueueMedia(await youtube.details(videoId));
+        }
+
+        messaging.setHandler('youtube', (message: any) => tryQueueYoutubeById(message.videoId));
+        messaging.setHandler('archive', (message: any) => tryQueueArchiveByPath(message.path));
 
         messaging.setHandler('search', (message: any) => {
-            const { query } = message;
-            youtube.search(query).then((results) => {
-                if (message.lucky) tryQueue(results[0].videoId);
-                else sendOnly('search', { query, results }, user.userId);
+            youtube.search(message.query).then((results) => {
+                if (message.lucky) tryQueueMedia(results[0]);
+                else sendOnly('search', { results }, user.userId);
             });
-        });
-
-        messaging.setHandler('skip', (message: any) => {
-            if (message.videoId !== playback.currentVideo?.videoId) return;
-
-            if (opts.skipPassword && message.password === opts.skipPassword) {
-                playback.skip();
-            } else {
-                skips.add(user.userId);
-                const current = skips.size;
-                const target = Math.ceil(zone.users.size * opts.voteSkipThreshold);
-                if (current >= target) {
-                    sendAll('status', { text: `voted to skip ${playback.currentVideo?.title}` });
-                    playback.skip();
-                } else {
-                    sendAll('status', { text: `${current} of ${target} votes to skip` });
-                }
-            }
         });
 
         messaging.setHandler('avatar', (message: any) => {
@@ -276,25 +314,16 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         });
 
         messaging.setHandler('reboot', (message: any) => {
-            const { master_key } = message;
-            if (opts.rebootPassword && master_key === opts.rebootPassword) {
+            const { password } = message;
+            if (opts.rebootPassword && password === opts.rebootPassword) {
                 save();
                 sendAll('status', { text: 'rebooting server' });
                 exec('git pull && refresh');
             }
         });
 
-        messaging.setHandler('error', (message: any) => {
-            if (!playback.currentVideo || message.videoId !== playback.currentVideo.videoId) return;
-            if (!user.name) return;
-            errors.add(user.userId);
-            if (errors.size >= Math.floor(zone.users.size * opts.errorSkipThreshold)) {
-                sendAll('status', {
-                    text: `skipping unplayable video ${playback.currentVideo.title}`,
-                });
-                playback.skip();
-            }
-        });
+        messaging.setHandler('error', (message: any) => voteError(message.source, user));
+        messaging.setHandler('skip', (message: any) => voteSkip(message.source, user, message.password));
 
         messaging.setHandler('move', (message: any) => {
             const { position } = message;

@@ -1,50 +1,65 @@
 import { EventEmitter } from 'events';
 import { performance } from 'perf_hooks';
 import { copy } from './utility';
-import youtube, { YoutubeVideo } from './youtube';
+import { UserId } from './zone';
+
+export type PlayableSource = { type: string };
+
+export interface PlayableMetadata {
+    title: string;
+    duration: number;
+}
+
+export interface PlayableMedia<TSource extends PlayableSource = PlayableSource> {
+    source: TSource;
+    details: PlayableMetadata;
+}
+
+export type QueueInfo = { userId?: UserId; ip?: unknown };
+export type QueueItem = { media: PlayableMedia; info: QueueInfo };
 
 export type PlaybackState = {
-    current: YoutubeVideo | undefined;
-    queue: YoutubeVideo[];
+    current?: QueueItem;
+    queue: QueueItem[];
     time: number;
 };
 
-export default class Playback extends EventEmitter {
-    public currentVideo: YoutubeVideo | undefined = undefined;
-    public queue: YoutubeVideo[] = [];
+export interface Playback {
+    on(event: 'play' | 'queue', callback: (media: QueueItem) => void): this;
+    on(event: 'stop', callback: () => void): this;
+}
+
+export class Playback extends EventEmitter {
+    public currentItem?: QueueItem;
+    public queue: QueueItem[] = [];
 
     private currentBeginTime: number = 0;
     private currentEndTime: number = 0;
     private checkTimeout: NodeJS.Timeout | undefined;
 
-    constructor() {
+    constructor(public paddingTime = 0) {
         super();
-        this.clearVideo();
+        this.clearMedia();
     }
 
     copyState(): PlaybackState {
         return {
-            current: this.currentVideo,
+            current: this.currentItem,
             queue: this.queue,
             time: this.currentTime,
         };
     }
 
     loadState(data: PlaybackState) {
-        if (data.current) this.setVideo(data.current, data.time / 1000);
-        data.queue.forEach((video) => this.queueYoutube(video));
+        if (data.current) this.setMedia(data.current, data.time);
+        data.queue.forEach((item) => this.queueMedia(item.media, item.info));
     }
 
-    async queueYoutube(video: YoutubeVideo) {
-        this.queue.push(video);
-        this.emit('queue', video);
+    queueMedia(media: PlayableMedia, info: QueueInfo = {}) {
+        const queued = { media, info };
+        this.queue.push(queued);
+        this.emit('queue', queued);
         this.check();
-    }
-
-    async queueYoutubeById(videoId: string, meta: unknown) {
-        const details = await youtube.details(videoId);
-        details.meta = meta;
-        this.queueYoutube(details);
     }
 
     get playing() {
@@ -61,33 +76,33 @@ export default class Playback extends EventEmitter {
 
     skip() {
         const next = this.queue.shift();
-        if (next) this.playVideo(next);
-        else this.clearVideo();
+        if (next) this.playMedia(next);
+        else this.clearMedia();
     }
 
-    private playVideo(video: YoutubeVideo) {
-        this.setVideo(video, 0);
+    private playMedia(media: QueueItem) {
+        this.setMedia(media, 0);
     }
 
-    private clearVideo() {
-        if (this.currentVideo) this.emit('stop');
+    private clearMedia() {
+        if (this.currentItem) this.emit('stop');
         this.setTime(0);
-        this.currentVideo = undefined;
+        this.currentItem = undefined;
     }
 
     private check() {
         if (this.playing) {
             if (this.checkTimeout) clearTimeout(this.checkTimeout);
-            this.checkTimeout = setTimeout(() => this.check(), this.remainingTime + 1000);
+            this.checkTimeout = setTimeout(() => this.check(), this.remainingTime + this.paddingTime);
         } else {
             this.skip();
         }
     }
 
-    private setVideo(video: YoutubeVideo, startSeconds = 0) {
-        this.currentVideo = video;
-        this.emit('play', copy(video));
-        this.setTime(video.duration * 1000, startSeconds * 1000);
+    private setMedia(item: QueueItem, time = 0) {
+        this.currentItem = item;
+        this.setTime(item.media.details.duration, time);
+        this.emit('play', copy(item));
     }
 
     private setTime(duration: number, time = 0) {
@@ -96,3 +111,5 @@ export default class Playback extends EventEmitter {
         if (duration > 0) this.check();
     }
 }
+
+export default Playback;
