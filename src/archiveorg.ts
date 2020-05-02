@@ -1,4 +1,4 @@
-import { fetchJson } from './utility';
+import { fetchJson, timeToSeconds } from './utility';
 import { PlayableMedia, PlayableSource } from './playback';
 
 export interface ArchiveSource extends PlayableSource {
@@ -22,7 +22,7 @@ export async function archiveOrgToPlayable(path: string): Promise<PlayableMedia<
     }
 
     const title = file.title || metadata.metadata.title || file.name;
-    const duration = parseFloat(file.length) * 1000;
+    const duration = (file.length.includes(':') ? timeToSeconds(file.length) : parseFloat(file.length)) * 1000;
     const src = `https://archive.org/download/${item}/${file.name}`;
 
     return {

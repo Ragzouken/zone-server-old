@@ -358,7 +358,7 @@ describe('playback', () => {
             await expect(skip).rejects.toEqual('timeout');
         });
     });
-    
+
     it("doesn't skip incorrect video", async () => {
         await server({}, async (server) => {
             const messaging = await server.messaging();

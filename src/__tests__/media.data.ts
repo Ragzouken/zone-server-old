@@ -1,6 +1,6 @@
-import { YoutubeVideo } from "../youtube";
-import { PlayableMedia } from "../playback";
-import { ArchiveSource } from "../archiveorg";
+import { YoutubeVideo } from '../youtube';
+import { PlayableMedia } from '../playback';
+import { ArchiveSource } from '../archiveorg';
 
 export const YOUTUBE_VIDEOS: YoutubeVideo[] = [
     {
@@ -28,7 +28,13 @@ export const PRISONER_ARCHIVE_VIDEO: PlayableMedia<ArchiveSource> = {
     source: { type: 'archive', src: 'https://archive.org/download/The_Prisoner/ThePrisoner01Arrival.mp4' },
 };
 
+export const BAD_DURATION_ARCHIVE_MUSIC: PlayableMedia<ArchiveSource> = {
+    details: { title: 'Ike Stubblefield', duration: 498000 },
+    source: { type: 'archive', src: 'https://archive.org/download/blr2020-05-01/bobby2020-05-01d01t01.mp3' },
+};
+
 export const ARCHIVE_PATH_TO_MEDIA = [
+    { path: 'blr2020-05-01/bobby2020-05-01d01t01.mp3', media: BAD_DURATION_ARCHIVE_MUSIC },
     { path: 'The_Prisoner/ThePrisoner01Arrival.mp4', media: PRISONER_ARCHIVE_VIDEO },
     { path: 'threads_201712/threads.mp4', media: THREADS_ARCHIVE_VIDEO },
     { path: 'threads_201712', media: THREADS_ARCHIVE_VIDEO },
