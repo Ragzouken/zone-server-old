@@ -8,9 +8,7 @@ import { host, HostOptions } from '../server';
 import WebSocketMessaging, { Message } from '../messaging';
 import { QueueItem } from '../playback';
 import { copy } from '../utility';
-
-import { VIDEOS as YOUTUBE_VIDEOS } from './youtube.test';
-import { PATH_TO_MEDIA } from './archiveorg.test';
+import { ARCHIVE_PATH_TO_MEDIA, YOUTUBE_VIDEOS } from './media.data';
 
 function socketAddress(server: Server) {
     const address = server.address() as AddressInfo;
@@ -382,7 +380,7 @@ describe('playback', () => {
 describe('media sources', () => {
     it('can play archive item', async () => {
         await server({}, async (server) => {
-            const { path, media } = PATH_TO_MEDIA[0];
+            const { path, media } = ARCHIVE_PATH_TO_MEDIA[0];
 
             const messaging = await server.messaging();
             await join(messaging);
