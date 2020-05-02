@@ -10,7 +10,7 @@ import Messaging from './messaging';
 import { ZoneState, UserId, UserState } from './zone';
 import { nanoid } from 'nanoid';
 import { archiveOrgToPlayableHTTP } from './archiveorg';
-import { objEqual } from './utility';
+import { objEqual, copy } from './utility';
 
 const SECONDS = 1000;
 const tileLengthLimit = 12;
@@ -106,7 +106,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
     }
 
     playback.on('queue', (item: QueueItem) => sendAll('queue', { items: [item] }));
-    playback.on('play', (item: QueueItem) => sendAll('play', { item }));
+    playback.on('play', (item: QueueItem) => sendAll('play', { item: sanitiseItem(item) }));
     playback.on('stop', () => sendAll('play', {}));
 
     playback.on('queue', save);
@@ -238,11 +238,16 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         sendAll('name', { name: user.name, userId: user.userId });
     }
 
+    function sanitiseItem(item: QueueItem) {
+        const sanitised = copy(item);
+        delete sanitised.info.ip;
+        return sanitised;
+    }
+    
     function sendCurrent(user: UserState) {
         if (playback.currentItem) {
-            const video = queueToDetails(playback.currentItem) as any;
-            video.time = playback.currentTime;
-            sendOnly('play', { item: playback.currentItem, time: playback.currentTime }, user.userId);
+            const item = sanitiseItem(playback.currentItem);
+            sendOnly('play', { item, time: playback.currentTime }, user.userId);
         } else {
             sendOnly('play', {}, user.userId);
         }
