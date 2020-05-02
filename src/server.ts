@@ -243,7 +243,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         delete sanitised.info.ip;
         return sanitised;
     }
-    
+
     function sendCurrent(user: UserState) {
         if (playback.currentItem) {
             const item = sanitiseItem(playback.currentItem);
