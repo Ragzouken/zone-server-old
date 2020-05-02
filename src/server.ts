@@ -9,7 +9,7 @@ import Playback, { PlayableMedia, QueueItem, PlayableSource } from './playback';
 import Messaging from './messaging';
 import { ZoneState, UserId, UserState } from './zone';
 import { nanoid } from 'nanoid';
-import { archiveOrgToPlayableHTTP } from './archiveorg';
+import { archiveOrgToPlayable } from './archiveorg';
 import { objEqual, copy } from './utility';
 
 const SECONDS = 1000;
@@ -289,7 +289,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         }
 
         async function tryQueueArchiveByPath(path: string) {
-            tryQueueMedia(await archiveOrgToPlayableHTTP(path));
+            tryQueueMedia(await archiveOrgToPlayable(path));
         }
 
         async function tryQueueYoutubeById(videoId: string) {
