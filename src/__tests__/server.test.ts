@@ -6,9 +6,11 @@ import { AddressInfo } from 'net';
 
 import { host, HostOptions } from '../server';
 import WebSocketMessaging, { Message } from '../messaging';
-import { QueueItem } from '../playback';
-import { copy } from '../utility';
-import { ARCHIVE_PATH_TO_MEDIA, YOUTUBE_VIDEOS } from './media.data';
+import Playback, { QueueItem } from '../playback';
+import { copy, sleep } from '../utility';
+import { ARCHIVE_PATH_TO_MEDIA, YOUTUBE_VIDEOS, TINY_MEDIA, DAY_MEDIA } from './media.data';
+
+const IMMEDIATE_REPLY_TIMEOUT = 50;
 
 function socketAddress(server: Server) {
     const address = server.address() as AddressInfo;
@@ -18,7 +20,7 @@ function socketAddress(server: Server) {
 async function server(options: Partial<HostOptions>, callback: (server: TestServer) => Promise<void>) {
     const server = new TestServer(options);
     try {
-        await once(server.server, 'listening');
+        await once(server.hosting.server, 'listening');
         await callback(server);
     } finally {
         server.dispose();
@@ -26,15 +28,15 @@ async function server(options: Partial<HostOptions>, callback: (server: TestServ
 }
 
 class TestServer {
-    public readonly server: Server;
+    public hosting: { server: Server, playback: Playback };
     private readonly sockets: WebSocket[] = [];
 
     constructor(options?: Partial<HostOptions>) {
-        this.server = host(new Memory(''), options);
+        this.hosting = host(new Memory(''), options);
     }
 
     public async socket() {
-        const socket = new WebSocket(socketAddress(this.server));
+        const socket = new WebSocket(socketAddress(this.hosting.server));
         this.sockets.push(socket);
         await once(socket, 'open');
         return socket;
@@ -46,7 +48,7 @@ class TestServer {
 
     public dispose() {
         this.sockets.forEach((socket) => socket.close());
-        this.server.close();
+        this.hosting.server.close();
     }
 }
 
@@ -84,26 +86,30 @@ async function exchange(
     });
 }
 
-test('can resume session with token', async () => {
-    await server({}, async (server) => {
-        const messaging1 = await server.messaging();
-        const messaging2 = await server.messaging();
-
-        const assign1 = await join(messaging1);
-        messaging1.disconnect(3000);
-        const assign2 = await join(messaging2, { token: assign1.token });
-
-        expect(assign2.userId).toEqual(assign1.userId);
-        expect(assign2.token).toEqual(assign1.token);
+describe('connectivity', () => {
+    test('heartbeat response', async () => {
+        await server({}, async (server) => {
+            const messaging = await server.messaging();
+            await join(messaging);
+            await exchange(messaging, 'heartbeat', {}, 'heartbeat');
+        });
     });
-});
 
-test('heartbeat response', async () => {
-    await server({}, async (server) => {
-        const messaging = await server.messaging();
-        await join(messaging);
-        await exchange(messaging, 'heartbeat', {}, 'heartbeat');
-    });
+    test('server sends ping', async () => {
+        await server({ pingInterval: 50 }, async (server) => {
+            const socket = await server.socket();
+            await once(socket, 'ping');
+        });
+    }, 100);
+
+    test('server responds with pong', async () => {
+        await server({ pingInterval: 50 }, async (server) => {
+            const socket = await server.socket();
+            const waiter = once(socket, 'pong');
+            socket.ping();
+            await waiter;
+        });
+    }, 100);
 });
 
 describe('join open server', () => {
@@ -204,55 +210,146 @@ describe('join server', () => {
     });
 });
 
-describe('playback', () => {
-    it('sends currently playing on join', async () => {
+describe('unclean disconnect', () => {
+    test('can resume session with token', async () => {
         await server({}, async (server) => {
             const messaging1 = await server.messaging();
             const messaging2 = await server.messaging();
+    
+            const assign1 = await join(messaging1);
+            messaging1.disconnect(3000);
+            const assign2 = await join(messaging2, { token: assign1.token });
+    
+            expect(assign2.userId).toEqual(assign1.userId);
+            expect(assign2.token).toEqual(assign1.token);
+        });
+    });
 
+    test('server assigns new user for expired token', async () => {
+        await server({ userTimeout: 0 }, async (server) => {
+            const messaging1 = await server.messaging();
+            const messaging2 = await server.messaging();
+    
+            const assign1 = await join(messaging1);
+            messaging1.disconnect(3000);
+            await sleep(100);
+            const assign2 = await join(messaging2, { token: assign1.token });
+    
+            expect(assign2.userId).not.toEqual(assign1.userId);
+            expect(assign2.token).not.toEqual(assign1.token);
+        });
+    });  
+
+    test('send leave message when token expires', async () => {
+        await server({ userTimeout: 50 }, async (server) => {
+            const messaging1 = await server.messaging();
+            const messaging2 = await server.messaging();
+    
             await join(messaging1);
-            const video1 = await exchange(messaging1, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
-
-            const waiter = response(messaging2, 'play');
             await join(messaging2);
-            const video2 = await waiter;
 
-            expect(video2.time).toBeGreaterThan(0);
-            expect(video2.item).toEqual(video1.item);
+            const leaveWaiter = response(messaging2, 'leave');
+            messaging1.disconnect(3000);    
+            await leaveWaiter;
+        });
+    });  
+});
+
+describe('user presence', () => {
+    const MESSAGES = [
+        { type: 'chat', text: 'hello baby yoda' },
+        { type: 'name', name: 'baby yoda' },
+        { type: 'move', position: [0, 0] },
+        { type: 'emotes', emotes: ['shk', 'wvy'] },
+        { type: 'avatar', data: 'FAKE' },
+    ];
+
+    it.each(MESSAGES)('echoes own change', async (message) => {
+        await server({}, async (server) => {
+            const messaging = await server.messaging();
+            const { userId } = await join(messaging);
+            const echo = await exchange(messaging, message.type, message, message.type); 
+
+            expect(echo).toEqual({ userId, ...message });
+        });
+    });
+
+    it.each(MESSAGES)('forwards own change', async (message) => {
+        await server({}, async (server) => {
+            const messaging1 = await server.messaging();
+            const messaging2 = await server.messaging();
+    
+            const { userId } = await join(messaging1);
+            await join(messaging2);
+
+            const waiter = response(messaging2, message.type);
+            messaging1.send(message.type, message);
+            const forward = await waiter;
+
+            expect(forward).toEqual({ userId, ...message });
+        });
+    });
+});
+
+describe('playback', () => {
+    it('sends currently playing on join', async () => {
+        await server({}, async (server) => {
+            server.hosting.playback.queueMedia(DAY_MEDIA);
+
+            const messaging = await server.messaging();
+            const waiter = response(messaging, 'play');
+            await join(messaging);
+            const play = await waiter;
+
+            expect(play.time).toBeGreaterThan(0);
+            expect(play.item).toEqual(server.hosting.playback.currentItem);
         });
     });
 
     it('sends currently playing on resync', async () => {
         await server({}, async (server) => {
+            server.hosting.playback.queueMedia(DAY_MEDIA);
+
             const messaging = await server.messaging();
-            await join(messaging);
-            const video1 = await exchange(messaging, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
-
             const waiter = response(messaging, 'play');
-            messaging.send('resync', {});
-            const video2 = await waiter;
+            await join(messaging);
+            await waiter;
 
-            expect(video2.time).toBeGreaterThan(0);
-            expect(video2.item).toEqual(video1.item);
+            const play = await exchange(messaging, 'resync', {}, 'play');
+
+            expect(play.time).toBeGreaterThan(0);
+            expect(play.item).toEqual(server.hosting.playback.currentItem);
         });
     });
 
-    it.todo('sends empty play when all playback ends');
+    it('sends empty play when all playback ends', async () => {
+        await server({ playbackPaddingTime: 0 }, async (server) => {
+            const messaging = await server.messaging();
+            await join(messaging);
+            
+            const playWaiter = response(messaging, 'play');
+            server.hosting.playback.queueMedia(TINY_MEDIA);
+            await playWaiter;
+            
+            const stop = await response(messaging, 'play');
+            expect(stop).toEqual({ type:'play' });
+        });
+    });
 
     it("doesn't queue duplicate media", async () => {
         await server({}, async (server) => {
             const messaging = await server.messaging();
 
-            const message = { videoId: '2GjyNgQ4Dos' };
+            const media = YOUTUBE_VIDEOS[0];
+            // queue twice because currently playing doesn't count
+            server.hosting.playback.queueMedia(media);
+            server.hosting.playback.queueMedia(media);
 
             await join(messaging);
-            // queue it three times because currently playing doesn't count
-            await exchange(messaging, 'youtube', message, 'queue');
-            await exchange(messaging, 'youtube', message, 'queue');
-            const queue = response(messaging, 'queue', 200);
-            messaging.send('youtube', message);
+            const waitQueue = response(messaging, 'queue', 200);
+            messaging.send('youtube', { videoId: media.source.videoId });
 
-            await expect(queue).rejects.toEqual('timeout');
+            await expect(waitQueue).rejects.toEqual('timeout');
         });
     });
 
@@ -273,13 +370,13 @@ describe('playback', () => {
             const messaging1 = await server.messaging();
             const messaging2 = await server.messaging();
 
-            await join(messaging1);
-            await join(messaging2);
+            server.hosting.playback.queueMedia(DAY_MEDIA);
 
             const waiter1 = response(messaging1, 'play');
             const waiter2 = response(messaging2, 'play');
 
-            messaging1.send('youtube', { videoId: '2GjyNgQ4Dos' });
+            await join(messaging1);
+            await join(messaging2);
 
             const { item }: { item: QueueItem } = await waiter1;
             await waiter2;
@@ -297,13 +394,13 @@ describe('playback', () => {
             const messaging1 = await server.messaging();
             const messaging2 = await server.messaging();
 
-            await join(messaging1);
-            await join(messaging2);
+            server.hosting.playback.queueMedia(DAY_MEDIA);
 
             const waiter1 = response(messaging1, 'play');
             const waiter2 = response(messaging2, 'play');
 
-            messaging1.send('youtube', { videoId: '2GjyNgQ4Dos' });
+            await join(messaging1);
+            await join(messaging2);
 
             const { item }: { item: QueueItem } = await waiter1;
             await waiter2;
@@ -321,13 +418,16 @@ describe('playback', () => {
         await server({ voteSkipThreshold: 2, skipPassword: password }, async (server) => {
             const messaging = await server.messaging();
 
-            await join(messaging);
-            const { item } = await exchange(messaging, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
+            server.hosting.playback.queueMedia(DAY_MEDIA);
 
-            const waiter = response(messaging, 'play');
+            const playWaiter = response(messaging, 'play');
+            await join(messaging);
+            const { item } = await playWaiter;
+
+            const stopWaiter = response(messaging, 'play');
             messaging.send('skip', { source: item.media.source, password });
 
-            await waiter;
+            await stopWaiter;
         });
     });
 
@@ -335,10 +435,13 @@ describe('playback', () => {
         await server({ voteSkipThreshold: 2 }, async (server) => {
             const messaging = await server.messaging();
 
-            await join(messaging);
-            const { item } = await exchange(messaging, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
+            server.hosting.playback.queueMedia(DAY_MEDIA);
 
-            const skip = response(messaging, 'play', 200);
+            const playWaiter = response(messaging, 'play');
+            await join(messaging);
+            const { item } = await playWaiter;
+
+            const skip = response(messaging, 'play', IMMEDIATE_REPLY_TIMEOUT);
             messaging.send('skip', { source: item.media.source });
 
             await expect(skip).rejects.toEqual('timeout');
@@ -349,10 +452,13 @@ describe('playback', () => {
         await server({ errorSkipThreshold: 2 }, async (server) => {
             const messaging = await server.messaging();
 
-            await join(messaging);
-            const { item } = await exchange(messaging, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
+            server.hosting.playback.queueMedia(DAY_MEDIA);
 
-            const skip = response(messaging, 'play', 200);
+            const playWaiter = response(messaging, 'play');
+            await join(messaging);
+            const { item } = await playWaiter;
+
+            const skip = response(messaging, 'play', IMMEDIATE_REPLY_TIMEOUT);
             messaging.send('error', { source: item.media.source });
 
             await expect(skip).rejects.toEqual('timeout');
@@ -363,13 +469,16 @@ describe('playback', () => {
         await server({}, async (server) => {
             const messaging = await server.messaging();
 
+            server.hosting.playback.queueMedia(DAY_MEDIA);
+
+            const playWaiter = response(messaging, 'play');
             await join(messaging);
-            const { item } = await exchange(messaging, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
+            const { item } = await playWaiter;
 
             const source = copy(item.media.source);
-            source.videoId = 'fake';
+            source.type = 'fake';
 
-            const skip = response(messaging, 'play', 200);
+            const skip = response(messaging, 'play', IMMEDIATE_REPLY_TIMEOUT);
             messaging.send('skip', { source });
 
             await expect(skip).rejects.toEqual('timeout');
@@ -399,6 +508,22 @@ describe('media sources', () => {
             const message = await exchange(messaging, 'youtube', { videoId: source.videoId }, 'play');
 
             expect(message.item.media.source).toEqual(source);
+        });
+    });
+
+    test('can search youtube', async() => {
+        await server({}, async (server) => {
+            const messaging = await server.messaging();
+            await join(messaging);
+            await exchange(messaging, 'search', { query: 'hello' }, 'search');
+        });
+    });
+
+    test('can lucky search youtube', async() => {
+        await server({}, async (server) => {
+            const messaging = await server.messaging();
+            await join(messaging);
+            await exchange(messaging, 'search', { query: 'hello', lucky: true }, 'play');
         });
     });
 });

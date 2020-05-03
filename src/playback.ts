@@ -32,12 +32,13 @@ export interface Playback {
 export class Playback extends EventEmitter {
     public currentItem?: QueueItem;
     public queue: QueueItem[] = [];
+    public paddingTime = 0;
 
     private currentBeginTime: number = 0;
     private currentEndTime: number = 0;
     private checkTimeout: NodeJS.Timeout | undefined;
 
-    constructor(public paddingTime = 0) {
+    constructor() {
         super();
         this.clearMedia();
     }

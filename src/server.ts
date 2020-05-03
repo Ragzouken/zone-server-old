@@ -30,6 +30,8 @@ export type HostOptions = {
     joinPassword?: string;
     skipPassword?: string;
     rebootPassword?: string;
+    
+    playbackPaddingTime: number;
 };
 
 export const DEFAULT_OPTIONS: HostOptions = {
@@ -43,6 +45,8 @@ export const DEFAULT_OPTIONS: HostOptions = {
     perUserQueueLimit: 3,
     voteSkipThreshold: 0.6,
     errorSkipThreshold: 0.4,
+
+    playbackPaddingTime: 1 * SECONDS,
 };
 
 export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {}) {
@@ -56,13 +60,6 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
 
     const xws = expressWs(express());
     const app = xws.app;
-
-    app.set('trust proxy', true);
-
-    // if someone tries to load the page, redirect to the client and tell it this zone's websocket endpoint
-    app.get('/', (request, response) => {
-        response.redirect(`https://kool.tools/zone/?zone=${process.env.PROJECT_DOMAIN}.glitch.me/zone`);
-    });
 
     // this zone's websocket endpoint
     app.ws('/zone', (websocket, req) => waitJoin(websocket, req.ip));
@@ -82,28 +79,27 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
     setInterval(ping, opts.pingInterval);
     setInterval(save, opts.saveInterval);
 
+    function addUserToken(user: UserState, token: string) {
+        tokenToUser.set(token, user);
+        userToToken.set(user, token);
+    }
+
+    function revokeUserToken(user: UserState) {
+        const token = userToToken.get(user);
+        if (token) tokenToUser.delete(token);
+        userToToken.delete(user);
+    }
+
     let lastUserId = 0;
     const tokenToUser = new Map<string, UserState>();
+    const userToToken = new Map<UserState, string>();
     const connections = new Map<UserId, Messaging>();
-    const playback = new Playback(1000);
+
     const zone = new ZoneState();
+    const playback = new Playback();
+    playback.paddingTime = opts.playbackPaddingTime;
 
     load();
-
-    function queueToDetails(item: QueueItem) {
-        let videoId = 'invalid';
-
-        try {
-            videoId = (item.media as YoutubeVideo).source.videoId;
-        } catch (e) {}
-
-        return {
-            videoId,
-            title: item.media.details.title,
-            duration: item.media.details.duration / 1000,
-            meta: { userId: item.info.userId },
-        };
-    }
 
     playback.on('queue', (item: QueueItem) => sendAll('queue', { items: [item] }));
     playback.on('play', (item: QueueItem) => sendAll('play', { item: sanitiseItem(item) }));
@@ -151,6 +147,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         zone.users.delete(user.userId);
         connections.delete(user.userId);
         userToConnections.delete(user);
+        revokeUserToken(user);
     }
 
     function voteError(source: PlayableSource, user: UserState) {
@@ -202,7 +199,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
             const token = resume ? message.token : nanoid();
             const user = resume ? tokenToUser.get(token)! : zone.getUser(++lastUserId as UserId);
 
-            tokenToUser.set(token, user);
+            addUserToken(user, token);
             addConnectionToUser(user, messaging);
 
             bindMessagingToUser(user, messaging, userIp);
@@ -346,5 +343,5 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         connections.get(userId)!.send(type, message);
     }
 
-    return server;
+    return { server, zone, playback, app };
 }
