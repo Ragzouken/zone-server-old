@@ -30,6 +30,8 @@ export type HostOptions = {
     joinPassword?: string;
     skipPassword?: string;
     rebootPassword?: string;
+    
+    playbackPaddingTime: number;
 };
 
 export const DEFAULT_OPTIONS: HostOptions = {
@@ -43,7 +45,14 @@ export const DEFAULT_OPTIONS: HostOptions = {
     perUserQueueLimit: 3,
     voteSkipThreshold: 0.6,
     errorSkipThreshold: 0.4,
+
+    playbackPaddingTime: 1 * SECONDS,
 };
+
+export class ZoneServerStuff {
+    public readonly playback = new Playback();
+    public readonly zone = new ZoneState();
+}
 
 export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {}) {
     const opts = Object.assign({}, DEFAULT_OPTIONS, options);
@@ -85,8 +94,9 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
     let lastUserId = 0;
     const tokenToUser = new Map<string, UserState>();
     const connections = new Map<UserId, Messaging>();
-    const playback = new Playback(1000);
-    const zone = new ZoneState();
+
+    const stuff = new ZoneServerStuff();
+    stuff.playback.paddingTime = opts.playbackPaddingTime;
 
     load();
 
@@ -105,27 +115,27 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         };
     }
 
-    playback.on('queue', (item: QueueItem) => sendAll('queue', { items: [item] }));
-    playback.on('play', (item: QueueItem) => sendAll('play', { item: sanitiseItem(item) }));
-    playback.on('stop', () => sendAll('play', {}));
+    stuff.playback.on('queue', (item: QueueItem) => sendAll('queue', { items: [item] }));
+    stuff.playback.on('play', (item: QueueItem) => sendAll('play', { item: sanitiseItem(item) }));
+    stuff.playback.on('stop', () => sendAll('play', {}));
 
-    playback.on('queue', save);
-    playback.on('play', save);
+    stuff.playback.on('queue', save);
+    stuff.playback.on('play', save);
 
     const skips = new Set<UserId>();
     const errors = new Set<UserId>();
-    playback.on('play', () => {
+    stuff.playback.on('play', () => {
         errors.clear();
         skips.clear();
     });
 
     function load() {
-        playback.loadState(db.get('playback').value());
+        stuff.playback.loadState(db.get('playback').value());
         youtube.loadState(db.get('youtube').value());
     }
 
     function save() {
-        db.set('playback', playback.copyState()).write();
+        db.set('playback', stuff.playback.copyState()).write();
         db.set('youtube', youtube.copyState()).write();
     }
 
@@ -147,32 +157,32 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
     }
 
     function killUser(user: UserState) {
-        if (zone.users.has(user.userId)) sendAll('leave', { userId: user.userId });
-        zone.users.delete(user.userId);
+        if (stuff.zone.users.has(user.userId)) sendAll('leave', { userId: user.userId });
+        stuff.zone.users.delete(user.userId);
         connections.delete(user.userId);
         userToConnections.delete(user);
     }
 
     function voteError(source: PlayableSource, user: UserState) {
-        if (!playback.currentItem || !objEqual(source, playback.currentItem.media.source)) return;
+        if (!stuff.playback.currentItem || !objEqual(source, stuff.playback.currentItem.media.source)) return;
 
         errors.add(user.userId);
-        if (errors.size >= Math.floor(zone.users.size * opts.errorSkipThreshold)) {
-            skip(`skipping unplayable video ${playback.currentItem.media.details.title}`);
+        if (errors.size >= Math.floor(stuff.zone.users.size * opts.errorSkipThreshold)) {
+            skip(`skipping unplayable video ${stuff.playback.currentItem.media.details.title}`);
         }
     }
 
     function voteSkip(source: PlayableSource, user: UserState, password?: string) {
-        if (!playback.currentItem || !objEqual(source, playback.currentItem.media.source)) return;
+        if (!stuff.playback.currentItem || !objEqual(source, stuff.playback.currentItem.media.source)) return;
 
         if (opts.skipPassword && password === opts.skipPassword) {
-            playback.skip();
+            stuff.playback.skip();
         } else {
             skips.add(user.userId);
             const current = skips.size;
-            const target = Math.ceil(zone.users.size * opts.voteSkipThreshold);
+            const target = Math.ceil(stuff.zone.users.size * opts.voteSkipThreshold);
             if (current >= target) {
-                skip(`voted to skip ${playback.currentItem.media.details.title}`);
+                skip(`voted to skip ${stuff.playback.currentItem.media.details.title}`);
             } else {
                 sendAll('status', { text: `${current} of ${target} votes to skip` });
             }
@@ -181,7 +191,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
 
     function skip(message?: string) {
         if (message) sendAll('status', { text: message });
-        playback.skip();
+        stuff.playback.skip();
     }
 
     function waitJoin(websocket: WebSocket, userIp: unknown) {
@@ -200,7 +210,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
             }
 
             const token = resume ? message.token : nanoid();
-            const user = resume ? tokenToUser.get(token)! : zone.getUser(++lastUserId as UserId);
+            const user = resume ? tokenToUser.get(token)! : stuff.zone.getUser(++lastUserId as UserId);
 
             tokenToUser.set(token, user);
             addConnectionToUser(user, messaging);
@@ -245,18 +255,18 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
     }
 
     function sendCurrent(user: UserState) {
-        if (playback.currentItem) {
-            const item = sanitiseItem(playback.currentItem);
-            sendOnly('play', { item, time: playback.currentTime }, user.userId);
+        if (stuff.playback.currentItem) {
+            const item = sanitiseItem(stuff.playback.currentItem);
+            sendOnly('play', { item, time: stuff.playback.currentTime }, user.userId);
         } else {
             sendOnly('play', {}, user.userId);
         }
     }
 
     function sendAllState(user: UserState) {
-        const users = Array.from(zone.users.values());
+        const users = Array.from(stuff.zone.users.values());
         sendOnly('users', { users }, user.userId);
-        sendOnly('queue', { items: playback.queue }, user.userId);
+        sendOnly('queue', { items: stuff.playback.queue }, user.userId);
         sendCurrent(user);
     }
 
@@ -276,15 +286,15 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         messaging.setHandler('resync', () => sendCurrent(user));
 
         async function tryQueueMedia(media: PlayableMedia) {
-            const existing = playback.queue.find((queued) => objEqual(queued.media.source, media.source))?.media;
-            const count = playback.queue.filter((item) => item.info.ip === userIp).length;
+            const existing = stuff.playback.queue.find((queued) => objEqual(queued.media.source, media.source))?.media;
+            const count = stuff.playback.queue.filter((item) => item.info.ip === userIp).length;
 
             if (existing) {
                 sendOnly('status', { text: `'${existing.details.title}' is already queued` }, user.userId);
             } else if (count >= opts.perUserQueueLimit) {
                 sendOnly('status', { text: `you already have ${count} videos in the queue` }, user.userId);
             } else {
-                playback.queueMedia(media, { userId: user.userId, ip: userIp });
+                stuff.playback.queueMedia(media, { userId: user.userId, ip: userIp });
             }
         }
 
@@ -346,5 +356,5 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         connections.get(userId)!.send(type, message);
     }
 
-    return server;
+    return { server, stuff };
 }

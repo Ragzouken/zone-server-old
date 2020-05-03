@@ -4,6 +4,7 @@
     },
     "testRegex": "(\\.|/)(test|spec)\\.(jsx?|tsx?)$",
     "coveragePathIgnorePatterns": ["__tests__"],
+    "testPathIgnorePatterns": ["/node_modules/", "/lib/"],
     "moduleFileExtensions": ["ts", "tsx", "js", "jsx", "json", "node"],
     "collectCoverage": true
 }

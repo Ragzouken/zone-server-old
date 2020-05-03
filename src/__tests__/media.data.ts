@@ -2,6 +2,18 @@ import { YoutubeVideo } from '../youtube';
 import { PlayableMedia } from '../playback';
 import { ArchiveSource } from '../archiveorg';
 
+export const TINY_MEDIA: PlayableMedia = {
+    source: { type: 'null' },
+    details: { title: 'tiny', duration: 100 },
+};
+
+export const DAY_MEDIA: PlayableMedia = {
+    source: { type: 'null' },
+    details: { title: 'day', duration: 24 * 60 * 60 * 1000 },
+};
+
+export const MEDIA: PlayableMedia[] = [TINY_MEDIA, DAY_MEDIA];
+
 export const YOUTUBE_VIDEOS: YoutubeVideo[] = [
     {
         source: { type: 'youtube', videoId: '5dA5ynP-j-I' },

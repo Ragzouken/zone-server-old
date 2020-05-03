@@ -4,11 +4,13 @@ import { Server } from 'http';
 import * as WebSocket from 'ws';
 import { AddressInfo } from 'net';
 
-import { host, HostOptions } from '../server';
+import { host, HostOptions, ZoneServerStuff } from '../server';
 import WebSocketMessaging, { Message } from '../messaging';
 import { QueueItem } from '../playback';
 import { copy } from '../utility';
-import { ARCHIVE_PATH_TO_MEDIA, YOUTUBE_VIDEOS } from './media.data';
+import { ARCHIVE_PATH_TO_MEDIA, YOUTUBE_VIDEOS, TINY_MEDIA, DAY_MEDIA } from './media.data';
+
+const IMMEDIATE_REPLY_TIMEOUT = 50;
 
 function socketAddress(server: Server) {
     const address = server.address() as AddressInfo;
@@ -27,10 +29,11 @@ async function server(options: Partial<HostOptions>, callback: (server: TestServ
 
 class TestServer {
     public readonly server: Server;
+    public readonly stuff: ZoneServerStuff;
     private readonly sockets: WebSocket[] = [];
 
     constructor(options?: Partial<HostOptions>) {
-        this.server = host(new Memory(''), options);
+        ({ server: this.server, stuff: this.stuff } = host(new Memory(''), options));
     }
 
     public async socket() {
@@ -207,52 +210,62 @@ describe('join server', () => {
 describe('playback', () => {
     it('sends currently playing on join', async () => {
         await server({}, async (server) => {
-            const messaging1 = await server.messaging();
-            const messaging2 = await server.messaging();
+            server.stuff.playback.queueMedia(DAY_MEDIA);
 
-            await join(messaging1);
-            const video1 = await exchange(messaging1, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
+            const messaging = await server.messaging();
+            const waiter = response(messaging, 'play');
+            await join(messaging);
+            const play = await waiter;
 
-            const waiter = response(messaging2, 'play');
-            await join(messaging2);
-            const video2 = await waiter;
-
-            expect(video2.time).toBeGreaterThan(0);
-            expect(video2.item).toEqual(video1.item);
+            expect(play.time).toBeGreaterThan(0);
+            expect(play.item).toEqual(server.stuff.playback.currentItem);
         });
     });
 
     it('sends currently playing on resync', async () => {
         await server({}, async (server) => {
+            server.stuff.playback.queueMedia(DAY_MEDIA);
+
             const messaging = await server.messaging();
-            await join(messaging);
-            const video1 = await exchange(messaging, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
-
             const waiter = response(messaging, 'play');
-            messaging.send('resync', {});
-            const video2 = await waiter;
+            await join(messaging);
+            await waiter;
 
-            expect(video2.time).toBeGreaterThan(0);
-            expect(video2.item).toEqual(video1.item);
+            const play = await exchange(messaging, 'resync', {}, 'play');
+
+            expect(play.time).toBeGreaterThan(0);
+            expect(play.item).toEqual(server.stuff.playback.currentItem);
         });
     });
 
-    it.todo('sends empty play when all playback ends');
+    it('sends empty play when all playback ends', async () => {
+        await server({ playbackPaddingTime: 0 }, async (server) => {
+            const messaging = await server.messaging();
+            await join(messaging);
+            
+            const playWaiter = response(messaging, 'play');
+            server.stuff.playback.queueMedia(TINY_MEDIA);
+            await playWaiter;
+            
+            const stop = await response(messaging, 'play');
+            expect(stop).toEqual({ type:'play' });
+        });
+    });
 
     it("doesn't queue duplicate media", async () => {
         await server({}, async (server) => {
             const messaging = await server.messaging();
 
-            const message = { videoId: '2GjyNgQ4Dos' };
+            const media = YOUTUBE_VIDEOS[0];
+            // queue twice because currently playing doesn't count
+            server.stuff.playback.queueMedia(media);
+            server.stuff.playback.queueMedia(media);
 
             await join(messaging);
-            // queue it three times because currently playing doesn't count
-            await exchange(messaging, 'youtube', message, 'queue');
-            await exchange(messaging, 'youtube', message, 'queue');
-            const queue = response(messaging, 'queue', 200);
-            messaging.send('youtube', message);
+            const waitQueue = response(messaging, 'queue', 200);
+            messaging.send('youtube', { videoId: media.source.videoId });
 
-            await expect(queue).rejects.toEqual('timeout');
+            await expect(waitQueue).rejects.toEqual('timeout');
         });
     });
 
@@ -273,13 +286,13 @@ describe('playback', () => {
             const messaging1 = await server.messaging();
             const messaging2 = await server.messaging();
 
-            await join(messaging1);
-            await join(messaging2);
+            server.stuff.playback.queueMedia(DAY_MEDIA);
 
             const waiter1 = response(messaging1, 'play');
             const waiter2 = response(messaging2, 'play');
 
-            messaging1.send('youtube', { videoId: '2GjyNgQ4Dos' });
+            await join(messaging1);
+            await join(messaging2);
 
             const { item }: { item: QueueItem } = await waiter1;
             await waiter2;
@@ -297,13 +310,13 @@ describe('playback', () => {
             const messaging1 = await server.messaging();
             const messaging2 = await server.messaging();
 
-            await join(messaging1);
-            await join(messaging2);
+            server.stuff.playback.queueMedia(DAY_MEDIA);
 
             const waiter1 = response(messaging1, 'play');
             const waiter2 = response(messaging2, 'play');
 
-            messaging1.send('youtube', { videoId: '2GjyNgQ4Dos' });
+            await join(messaging1);
+            await join(messaging2);
 
             const { item }: { item: QueueItem } = await waiter1;
             await waiter2;
@@ -321,13 +334,16 @@ describe('playback', () => {
         await server({ voteSkipThreshold: 2, skipPassword: password }, async (server) => {
             const messaging = await server.messaging();
 
-            await join(messaging);
-            const { item } = await exchange(messaging, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
+            server.stuff.playback.queueMedia(DAY_MEDIA);
 
-            const waiter = response(messaging, 'play');
+            const playWaiter = response(messaging, 'play');
+            await join(messaging);
+            const { item } = await playWaiter;
+
+            const stopWaiter = response(messaging, 'play');
             messaging.send('skip', { source: item.media.source, password });
 
-            await waiter;
+            await stopWaiter;
         });
     });
 
@@ -335,10 +351,13 @@ describe('playback', () => {
         await server({ voteSkipThreshold: 2 }, async (server) => {
             const messaging = await server.messaging();
 
-            await join(messaging);
-            const { item } = await exchange(messaging, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
+            server.stuff.playback.queueMedia(DAY_MEDIA);
 
-            const skip = response(messaging, 'play', 200);
+            const playWaiter = response(messaging, 'play');
+            await join(messaging);
+            const { item } = await playWaiter;
+
+            const skip = response(messaging, 'play', IMMEDIATE_REPLY_TIMEOUT);
             messaging.send('skip', { source: item.media.source });
 
             await expect(skip).rejects.toEqual('timeout');
@@ -349,10 +368,13 @@ describe('playback', () => {
         await server({ errorSkipThreshold: 2 }, async (server) => {
             const messaging = await server.messaging();
 
-            await join(messaging);
-            const { item } = await exchange(messaging, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
+            server.stuff.playback.queueMedia(DAY_MEDIA);
 
-            const skip = response(messaging, 'play', 200);
+            const playWaiter = response(messaging, 'play');
+            await join(messaging);
+            const { item } = await playWaiter;
+
+            const skip = response(messaging, 'play', IMMEDIATE_REPLY_TIMEOUT);
             messaging.send('error', { source: item.media.source });
 
             await expect(skip).rejects.toEqual('timeout');
@@ -363,13 +385,16 @@ describe('playback', () => {
         await server({}, async (server) => {
             const messaging = await server.messaging();
 
+            server.stuff.playback.queueMedia(DAY_MEDIA);
+
+            const playWaiter = response(messaging, 'play');
             await join(messaging);
-            const { item } = await exchange(messaging, 'youtube', { videoId: '2GjyNgQ4Dos' }, 'play');
+            const { item } = await playWaiter;
 
             const source = copy(item.media.source);
-            source.videoId = 'fake';
+            source.type = 'fake';
 
-            const skip = response(messaging, 'play', 200);
+            const skip = response(messaging, 'play', IMMEDIATE_REPLY_TIMEOUT);
             messaging.send('skip', { source });
 
             await expect(skip).rejects.toEqual('timeout');
