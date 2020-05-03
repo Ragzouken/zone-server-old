@@ -7,7 +7,7 @@ import { AddressInfo } from 'net';
 import { host, HostOptions, ZoneServerStuff } from '../server';
 import WebSocketMessaging, { Message } from '../messaging';
 import { QueueItem } from '../playback';
-import { copy } from '../utility';
+import { copy, sleep } from '../utility';
 import { ARCHIVE_PATH_TO_MEDIA, YOUTUBE_VIDEOS, TINY_MEDIA, DAY_MEDIA } from './media.data';
 
 const IMMEDIATE_REPLY_TIMEOUT = 50;
@@ -86,20 +86,6 @@ async function exchange(
         messaging.send(sendType, sendMessage);
     });
 }
-
-test('can resume session with token', async () => {
-    await server({}, async (server) => {
-        const messaging1 = await server.messaging();
-        const messaging2 = await server.messaging();
-
-        const assign1 = await join(messaging1);
-        messaging1.disconnect(3000);
-        const assign2 = await join(messaging2, { token: assign1.token });
-
-        expect(assign2.userId).toEqual(assign1.userId);
-        expect(assign2.token).toEqual(assign1.token);
-    });
-});
 
 test('heartbeat response', async () => {
     await server({}, async (server) => {
@@ -206,6 +192,51 @@ describe('join server', () => {
         });
     });
 });
+
+describe('unclean disconnect', () => {
+    test('can resume session with token', async () => {
+        await server({}, async (server) => {
+            const messaging1 = await server.messaging();
+            const messaging2 = await server.messaging();
+    
+            const assign1 = await join(messaging1);
+            messaging1.disconnect(3000);
+            const assign2 = await join(messaging2, { token: assign1.token });
+    
+            expect(assign2.userId).toEqual(assign1.userId);
+            expect(assign2.token).toEqual(assign1.token);
+        });
+    });
+
+    test('server assigns new user for expired token', async () => {
+        await server({ userTimeout: 0 }, async (server) => {
+            const messaging1 = await server.messaging();
+            const messaging2 = await server.messaging();
+    
+            const assign1 = await join(messaging1);
+            messaging1.disconnect(3000);
+            await sleep(100);
+            const assign2 = await join(messaging2, { token: assign1.token });
+    
+            expect(assign2.userId).not.toEqual(assign1.userId);
+            expect(assign2.token).not.toEqual(assign1.token);
+        });
+    });  
+
+    test('send leave message when token expires', async () => {
+        await server({ userTimeout: 50 }, async (server) => {
+            const messaging1 = await server.messaging();
+            const messaging2 = await server.messaging();
+    
+            await join(messaging1);
+            await join(messaging2);
+
+            const leaveWaiter = response(messaging2, 'leave');
+            messaging1.disconnect(3000);    
+            await leaveWaiter;
+        });
+    });  
+})
 
 describe('playback', () => {
     it('sends currently playing on join', async () => {

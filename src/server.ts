@@ -91,29 +91,26 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
     setInterval(ping, opts.pingInterval);
     setInterval(save, opts.saveInterval);
 
+    function addUserToken(user: UserState, token: string) {
+        tokenToUser.set(token, user);
+        userToToken.set(user, token);
+    }
+
+    function revokeUserToken(user: UserState) {
+        const token = userToToken.get(user);
+        if (token) tokenToUser.delete(token);
+        userToToken.delete(user);
+    }
+
     let lastUserId = 0;
     const tokenToUser = new Map<string, UserState>();
+    const userToToken = new Map<UserState, string>();
     const connections = new Map<UserId, Messaging>();
 
     const stuff = new ZoneServerStuff();
     stuff.playback.paddingTime = opts.playbackPaddingTime;
 
     load();
-
-    function queueToDetails(item: QueueItem) {
-        let videoId = 'invalid';
-
-        try {
-            videoId = (item.media as YoutubeVideo).source.videoId;
-        } catch (e) {}
-
-        return {
-            videoId,
-            title: item.media.details.title,
-            duration: item.media.details.duration / 1000,
-            meta: { userId: item.info.userId },
-        };
-    }
 
     stuff.playback.on('queue', (item: QueueItem) => sendAll('queue', { items: [item] }));
     stuff.playback.on('play', (item: QueueItem) => sendAll('play', { item: sanitiseItem(item) }));
@@ -161,6 +158,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         stuff.zone.users.delete(user.userId);
         connections.delete(user.userId);
         userToConnections.delete(user);
+        revokeUserToken(user);
     }
 
     function voteError(source: PlayableSource, user: UserState) {
@@ -212,7 +210,7 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
             const token = resume ? message.token : nanoid();
             const user = resume ? tokenToUser.get(token)! : stuff.zone.getUser(++lastUserId as UserId);
 
-            tokenToUser.set(token, user);
+            addUserToken(user, token);
             addConnectionToUser(user, messaging);
 
             bindMessagingToUser(user, messaging, userIp);
