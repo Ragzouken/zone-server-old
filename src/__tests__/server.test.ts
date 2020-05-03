@@ -4,9 +4,9 @@ import { Server } from 'http';
 import * as WebSocket from 'ws';
 import { AddressInfo } from 'net';
 
-import { host, HostOptions, ZoneServerStuff } from '../server';
+import { host, HostOptions } from '../server';
 import WebSocketMessaging, { Message } from '../messaging';
-import { QueueItem } from '../playback';
+import Playback, { QueueItem } from '../playback';
 import { copy, sleep } from '../utility';
 import { ARCHIVE_PATH_TO_MEDIA, YOUTUBE_VIDEOS, TINY_MEDIA, DAY_MEDIA } from './media.data';
 
@@ -20,7 +20,7 @@ function socketAddress(server: Server) {
 async function server(options: Partial<HostOptions>, callback: (server: TestServer) => Promise<void>) {
     const server = new TestServer(options);
     try {
-        await once(server.server, 'listening');
+        await once(server.hosting.server, 'listening');
         await callback(server);
     } finally {
         server.dispose();
@@ -28,16 +28,15 @@ async function server(options: Partial<HostOptions>, callback: (server: TestServ
 }
 
 class TestServer {
-    public readonly server: Server;
-    public readonly stuff: ZoneServerStuff;
+    public hosting: { server: Server, playback: Playback };
     private readonly sockets: WebSocket[] = [];
 
     constructor(options?: Partial<HostOptions>) {
-        ({ server: this.server, stuff: this.stuff } = host(new Memory(''), options));
+        this.hosting = host(new Memory(''), options);
     }
 
     public async socket() {
-        const socket = new WebSocket(socketAddress(this.server));
+        const socket = new WebSocket(socketAddress(this.hosting.server));
         this.sockets.push(socket);
         await once(socket, 'open');
         return socket;
@@ -49,7 +48,7 @@ class TestServer {
 
     public dispose() {
         this.sockets.forEach((socket) => socket.close());
-        this.server.close();
+        this.hosting.server.close();
     }
 }
 
@@ -87,12 +86,30 @@ async function exchange(
     });
 }
 
-test('heartbeat response', async () => {
-    await server({}, async (server) => {
-        const messaging = await server.messaging();
-        await join(messaging);
-        await exchange(messaging, 'heartbeat', {}, 'heartbeat');
+describe('connectivity', () => {
+    test('heartbeat response', async () => {
+        await server({}, async (server) => {
+            const messaging = await server.messaging();
+            await join(messaging);
+            await exchange(messaging, 'heartbeat', {}, 'heartbeat');
+        });
     });
+
+    test('server sends ping', async () => {
+        await server({ pingInterval: 50 }, async (server) => {
+            const socket = await server.socket();
+            await once(socket, 'ping');
+        });
+    }, 100);
+
+    test('server responds with pong', async () => {
+        await server({ pingInterval: 50 }, async (server) => {
+            const socket = await server.socket();
+            const waiter = once(socket, 'pong');
+            socket.ping();
+            await waiter;
+        });
+    }, 100);
 });
 
 describe('join open server', () => {
@@ -236,12 +253,48 @@ describe('unclean disconnect', () => {
             await leaveWaiter;
         });
     });  
-})
+});
+
+describe('user presence', () => {
+    const MESSAGES = [
+        { type: 'chat', text: 'hello baby yoda' },
+        { type: 'name', name: 'baby yoda' },
+        { type: 'move', position: [0, 0] },
+        { type: 'emotes', emotes: ['shk', 'wvy'] },
+        { type: 'avatar', data: 'FAKE' },
+    ];
+
+    it.each(MESSAGES)('echoes own change', async (message) => {
+        await server({}, async (server) => {
+            const messaging = await server.messaging();
+            const { userId } = await join(messaging);
+            const echo = await exchange(messaging, message.type, message, message.type); 
+
+            expect(echo).toEqual({ userId, ...message });
+        });
+    });
+
+    it.each(MESSAGES)('forwards own change', async (message) => {
+        await server({}, async (server) => {
+            const messaging1 = await server.messaging();
+            const messaging2 = await server.messaging();
+    
+            const { userId } = await join(messaging1);
+            await join(messaging2);
+
+            const waiter = response(messaging2, message.type);
+            messaging1.send(message.type, message);
+            const forward = await waiter;
+
+            expect(forward).toEqual({ userId, ...message });
+        });
+    });
+});
 
 describe('playback', () => {
     it('sends currently playing on join', async () => {
         await server({}, async (server) => {
-            server.stuff.playback.queueMedia(DAY_MEDIA);
+            server.hosting.playback.queueMedia(DAY_MEDIA);
 
             const messaging = await server.messaging();
             const waiter = response(messaging, 'play');
@@ -249,13 +302,13 @@ describe('playback', () => {
             const play = await waiter;
 
             expect(play.time).toBeGreaterThan(0);
-            expect(play.item).toEqual(server.stuff.playback.currentItem);
+            expect(play.item).toEqual(server.hosting.playback.currentItem);
         });
     });
 
     it('sends currently playing on resync', async () => {
         await server({}, async (server) => {
-            server.stuff.playback.queueMedia(DAY_MEDIA);
+            server.hosting.playback.queueMedia(DAY_MEDIA);
 
             const messaging = await server.messaging();
             const waiter = response(messaging, 'play');
@@ -265,7 +318,7 @@ describe('playback', () => {
             const play = await exchange(messaging, 'resync', {}, 'play');
 
             expect(play.time).toBeGreaterThan(0);
-            expect(play.item).toEqual(server.stuff.playback.currentItem);
+            expect(play.item).toEqual(server.hosting.playback.currentItem);
         });
     });
 
@@ -275,7 +328,7 @@ describe('playback', () => {
             await join(messaging);
             
             const playWaiter = response(messaging, 'play');
-            server.stuff.playback.queueMedia(TINY_MEDIA);
+            server.hosting.playback.queueMedia(TINY_MEDIA);
             await playWaiter;
             
             const stop = await response(messaging, 'play');
@@ -289,8 +342,8 @@ describe('playback', () => {
 
             const media = YOUTUBE_VIDEOS[0];
             // queue twice because currently playing doesn't count
-            server.stuff.playback.queueMedia(media);
-            server.stuff.playback.queueMedia(media);
+            server.hosting.playback.queueMedia(media);
+            server.hosting.playback.queueMedia(media);
 
             await join(messaging);
             const waitQueue = response(messaging, 'queue', 200);
@@ -317,7 +370,7 @@ describe('playback', () => {
             const messaging1 = await server.messaging();
             const messaging2 = await server.messaging();
 
-            server.stuff.playback.queueMedia(DAY_MEDIA);
+            server.hosting.playback.queueMedia(DAY_MEDIA);
 
             const waiter1 = response(messaging1, 'play');
             const waiter2 = response(messaging2, 'play');
@@ -341,7 +394,7 @@ describe('playback', () => {
             const messaging1 = await server.messaging();
             const messaging2 = await server.messaging();
 
-            server.stuff.playback.queueMedia(DAY_MEDIA);
+            server.hosting.playback.queueMedia(DAY_MEDIA);
 
             const waiter1 = response(messaging1, 'play');
             const waiter2 = response(messaging2, 'play');
@@ -365,7 +418,7 @@ describe('playback', () => {
         await server({ voteSkipThreshold: 2, skipPassword: password }, async (server) => {
             const messaging = await server.messaging();
 
-            server.stuff.playback.queueMedia(DAY_MEDIA);
+            server.hosting.playback.queueMedia(DAY_MEDIA);
 
             const playWaiter = response(messaging, 'play');
             await join(messaging);
@@ -382,7 +435,7 @@ describe('playback', () => {
         await server({ voteSkipThreshold: 2 }, async (server) => {
             const messaging = await server.messaging();
 
-            server.stuff.playback.queueMedia(DAY_MEDIA);
+            server.hosting.playback.queueMedia(DAY_MEDIA);
 
             const playWaiter = response(messaging, 'play');
             await join(messaging);
@@ -399,7 +452,7 @@ describe('playback', () => {
         await server({ errorSkipThreshold: 2 }, async (server) => {
             const messaging = await server.messaging();
 
-            server.stuff.playback.queueMedia(DAY_MEDIA);
+            server.hosting.playback.queueMedia(DAY_MEDIA);
 
             const playWaiter = response(messaging, 'play');
             await join(messaging);
@@ -416,7 +469,7 @@ describe('playback', () => {
         await server({}, async (server) => {
             const messaging = await server.messaging();
 
-            server.stuff.playback.queueMedia(DAY_MEDIA);
+            server.hosting.playback.queueMedia(DAY_MEDIA);
 
             const playWaiter = response(messaging, 'play');
             await join(messaging);
@@ -455,6 +508,22 @@ describe('media sources', () => {
             const message = await exchange(messaging, 'youtube', { videoId: source.videoId }, 'play');
 
             expect(message.item.media.source).toEqual(source);
+        });
+    });
+
+    test('can search youtube', async() => {
+        await server({}, async (server) => {
+            const messaging = await server.messaging();
+            await join(messaging);
+            await exchange(messaging, 'search', { query: 'hello' }, 'search');
+        });
+    });
+
+    test('can lucky search youtube', async() => {
+        await server({}, async (server) => {
+            const messaging = await server.messaging();
+            await join(messaging);
+            await exchange(messaging, 'search', { query: 'hello', lucky: true }, 'play');
         });
     });
 });
