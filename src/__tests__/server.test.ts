@@ -28,7 +28,7 @@ async function server(options: Partial<HostOptions>, callback: (server: TestServ
 }
 
 class TestServer {
-    public hosting: { server: Server, playback: Playback };
+    public hosting: { server: Server; playback: Playback };
     private readonly sockets: WebSocket[] = [];
 
     constructor(options?: Partial<HostOptions>) {
@@ -215,11 +215,11 @@ describe('unclean disconnect', () => {
         await server({}, async (server) => {
             const messaging1 = await server.messaging();
             const messaging2 = await server.messaging();
-    
+
             const assign1 = await join(messaging1);
             messaging1.disconnect(3000);
             const assign2 = await join(messaging2, { token: assign1.token });
-    
+
             expect(assign2.userId).toEqual(assign1.userId);
             expect(assign2.token).toEqual(assign1.token);
         });
@@ -229,30 +229,30 @@ describe('unclean disconnect', () => {
         await server({ userTimeout: 0 }, async (server) => {
             const messaging1 = await server.messaging();
             const messaging2 = await server.messaging();
-    
+
             const assign1 = await join(messaging1);
             messaging1.disconnect(3000);
             await sleep(100);
             const assign2 = await join(messaging2, { token: assign1.token });
-    
+
             expect(assign2.userId).not.toEqual(assign1.userId);
             expect(assign2.token).not.toEqual(assign1.token);
         });
-    });  
+    });
 
     test('send leave message when token expires', async () => {
         await server({ userTimeout: 50 }, async (server) => {
             const messaging1 = await server.messaging();
             const messaging2 = await server.messaging();
-    
+
             await join(messaging1);
             await join(messaging2);
 
             const leaveWaiter = response(messaging2, 'leave');
-            messaging1.disconnect(3000);    
+            messaging1.disconnect(3000);
             await leaveWaiter;
         });
-    });  
+    });
 });
 
 describe('user presence', () => {
@@ -261,14 +261,14 @@ describe('user presence', () => {
         { type: 'name', name: 'baby yoda' },
         { type: 'move', position: [0, 0] },
         { type: 'emotes', emotes: ['shk', 'wvy'] },
-        { type: 'avatar', data: 'FAKE' },
+        { type: 'avatar', data: 'AGb/w+f/WmY=' },
     ];
 
-    it.each(MESSAGES)('echoes own change', async (message) => {
+    it.each(MESSAGES)('echoes own change', async ({ type, ...message }) => {
         await server({}, async (server) => {
             const messaging = await server.messaging();
             const { userId } = await join(messaging);
-            const echo = await exchange(messaging, message.type, message, message.type); 
+            const echo = await exchange(messaging, type, message, type);
 
             expect(echo).toEqual({ userId, ...message });
         });
@@ -278,7 +278,7 @@ describe('user presence', () => {
         await server({}, async (server) => {
             const messaging1 = await server.messaging();
             const messaging2 = await server.messaging();
-    
+
             const { userId } = await join(messaging1);
             await join(messaging2);
 
@@ -326,13 +326,13 @@ describe('playback', () => {
         await server({ playbackPaddingTime: 0 }, async (server) => {
             const messaging = await server.messaging();
             await join(messaging);
-            
+
             const playWaiter = response(messaging, 'play');
             server.hosting.playback.queueMedia(TINY_MEDIA);
             await playWaiter;
-            
+
             const stop = await response(messaging, 'play');
-            expect(stop).toEqual({ type:'play' });
+            expect(stop).toEqual({ type: 'play' });
         });
     });
 
@@ -511,7 +511,7 @@ describe('media sources', () => {
         });
     });
 
-    test('can search youtube', async() => {
+    test('can search youtube', async () => {
         await server({}, async (server) => {
             const messaging = await server.messaging();
             await join(messaging);
@@ -519,7 +519,7 @@ describe('media sources', () => {
         });
     });
 
-    test('can lucky search youtube', async() => {
+    test('can lucky search youtube', async () => {
         await server({}, async (server) => {
             const messaging = await server.messaging();
             await join(messaging);

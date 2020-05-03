@@ -27,6 +27,7 @@
     "zone"
   ],
   "dependencies": {
+    "@hapi/joi": "^17.1.1",
     "express": "^4.17.1",
     "express-ws": "^4.0.0",
     "lowdb": "^1.0.0",
@@ -37,6 +38,7 @@
   "devDependencies": {
     "@types/express": "^4.17.6",
     "@types/express-ws": "^3.0.0",
+    "@types/hapi__joi": "^16.0.12",
     "@types/jest": "^25.2.1",
     "@types/lowdb": "^1.0.9",
     "@types/nanoid": "^2.1.0",

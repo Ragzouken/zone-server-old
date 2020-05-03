@@ -1,4 +1,4 @@
-import { getTitleDirect, Youtube } from '../youtube';
+import Youtube, { getTitleDirect } from '../youtube';
 import { YOUTUBE_VIDEOS, FAKE_YOUTUBE_VIDEO } from './media.data';
 
 test.each(YOUTUBE_VIDEOS)('getTitleDirect', async (knownVideo) => {

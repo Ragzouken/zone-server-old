@@ -43,3 +43,9 @@ export function getDefault<K, V>(map: Map<K, V>, key: K, factory: (key: K) => V)
     }
     return value!;
 }
+
+export function copyObjectKeys(object: any, keys: string[]) {
+    const copy: any = {};
+    for (const key of keys) if (object[key] !== undefined) copy[key] = object[key];
+    return copy;
+}

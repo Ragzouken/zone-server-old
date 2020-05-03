@@ -8,7 +8,7 @@ export type YoutubeState = {
     videos: YoutubeVideo[];
 };
 
-export class Youtube {
+export default class Youtube {
     private cache = new Map<string, YoutubeVideo>();
 
     public copyState(): YoutubeState {
@@ -94,5 +94,3 @@ export async function search(query: string): Promise<YoutubeVideo[]> {
 
     return results;
 }
-
-export default new Youtube();

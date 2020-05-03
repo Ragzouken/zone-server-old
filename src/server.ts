@@ -4,16 +4,16 @@ import * as WebSocket from 'ws';
 import * as low from 'lowdb';
 import { exec } from 'child_process';
 
-import youtube, { YoutubeVideo } from './youtube';
+import Youtube from './youtube';
 import Playback, { PlayableMedia, QueueItem, PlayableSource } from './playback';
-import Messaging from './messaging';
+import Messaging, { Message } from './messaging';
 import { ZoneState, UserId, UserState } from './zone';
 import { nanoid } from 'nanoid';
 import { archiveOrgToPlayable } from './archiveorg';
-import { objEqual, copy } from './utility';
+import { objEqual, copy, copyObjectKeys } from './utility';
+import { MESSAGE_SCHEMAS } from './protocol';
 
 const SECONDS = 1000;
-const tileLengthLimit = 12;
 
 export type HostOptions = {
     listenHandle: any;
@@ -30,7 +30,7 @@ export type HostOptions = {
     joinPassword?: string;
     skipPassword?: string;
     rebootPassword?: string;
-    
+
     playbackPaddingTime: number;
 };
 
@@ -98,6 +98,8 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
     const zone = new ZoneState();
     const playback = new Playback();
     playback.paddingTime = opts.playbackPaddingTime;
+
+    const youtube = new Youtube();
 
     load();
 
@@ -230,11 +232,6 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         });
     }
 
-    function setUserName(user: UserState, name: string) {
-        user.name = name.substring(0, opts.nameLengthLimit);
-        sendAll('name', { name: user.name, userId: user.userId });
-    }
-
     function sanitiseItem(item: QueueItem) {
         const sanitised = copy(item);
         delete sanitised.info.ip;
@@ -255,6 +252,11 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         sendOnly('users', { users }, user.userId);
         sendOnly('queue', { items: playback.queue }, user.userId);
         sendCurrent(user);
+    }
+
+    function setUserName(user: UserState, name: string) {
+        user.name = name.substring(0, opts.nameLengthLimit);
+        sendAll('name', { name: user.name, userId: user.userId });
     }
 
     function bindMessagingToUser(user: UserState, messaging: Messaging, userIp: unknown) {
@@ -303,13 +305,6 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
             });
         });
 
-        messaging.setHandler('avatar', (message: any) => {
-            const { data } = message;
-            if (data.length > tileLengthLimit) return;
-            user.avatar = data;
-            sendAll('avatar', { data, userId: user.userId });
-        });
-
         messaging.setHandler('reboot', (message: any) => {
             const { password } = message;
             if (opts.rebootPassword && password === opts.rebootPassword) {
@@ -322,16 +317,30 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
         messaging.setHandler('error', (message: any) => voteError(message.source, user));
         messaging.setHandler('skip', (message: any) => voteSkip(message.source, user, message.password));
 
-        messaging.setHandler('move', (message: any) => {
-            const { position } = message;
-            user.position = position;
-            sendAll('move', { userId: user.userId, position });
+        function setSchemaHandler(type: string, handler: (message: any) => void) {
+            messaging.setHandler(type, ({ type, ...message }) => {
+                const { value, error } = MESSAGE_SCHEMAS.get(type)!.validate(message);
+                if (error) {
+                    sendOnly('reject', { text: error.details[0].message }, user.userId);
+                } else {
+                    handler(value);
+                }
+            });
+        }
+
+        setSchemaHandler('avatar', (message: any) => {
+            user.avatar = message.data;
+            sendAll('avatar', { ...message, userId: user.userId });
         });
 
-        messaging.setHandler('emotes', (message: any) => {
-            const { emotes } = message;
-            user.emotes = emotes;
-            sendAll('emotes', { userId: user.userId, emotes });
+        setSchemaHandler('move', (message: any) => {
+            user.position = message.position;
+            sendAll('move', { ...message, userId: user.userId });
+        });
+
+        setSchemaHandler('emotes', (message: any) => {
+            user.emotes = message.emotes;
+            sendAll('emotes', { ...message, userId: user.userId });
         });
     }
 
