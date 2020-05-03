@@ -1,4 +1,4 @@
-import fetch from 'node-fetch';
+import fetch, { RequestInit } from 'node-fetch';
 import * as HTMLParser from 'node-html-parser';
 
 export function objEqual(a: any, b: any) {
@@ -28,9 +28,9 @@ export async function fetchJson(url: string) {
     return JSON.parse(json);
 }
 
-export async function fetchDom(url: string): Promise<HTMLParser.HTMLElement> {
+export async function fetchDom(url: string, init?: RequestInit): Promise<HTMLParser.HTMLElement> {
     const address = encodeURI(url);
-    const response = await fetch(address);
+    const response = await fetch(address, init);
     const html = await response.text();
     return HTMLParser.parse(html) as HTMLParser.HTMLElement;
 }

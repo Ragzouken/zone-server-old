@@ -99,7 +99,7 @@ export class Playback extends EventEmitter {
         }
     }
 
-    private setMedia(item: QueueItem, time = 0) {
+    public setMedia(item: QueueItem, time = 0) {
         this.currentItem = item;
         this.setTime(item.media.details.duration, time);
         this.emit('play', copy(item));

@@ -90,23 +90,21 @@ export function host(adapter: low.AdapterSync, options: Partial<HostOptions> = {
 
     load();
 
-    function queueToDetails(item: QueueItem) {
-        let videoId = 'invalid';
-
-        try {
-            videoId = (item.media as YoutubeVideo).source.videoId;
-        } catch (e) {}
-
-        return {
-            videoId,
-            title: item.media.details.title,
-            duration: item.media.details.duration / 1000,
-            meta: { userId: item.info.userId },
-        };
-    }
-
     playback.on('queue', (item: QueueItem) => sendAll('queue', { items: [item] }));
-    playback.on('play', (item: QueueItem) => sendAll('play', { item: sanitiseItem(item) }));
+    playback.on('play', async (item: QueueItem) => {
+        item = sanitiseItem(item);
+
+        if (item.media.source.type === 'youtube') {
+            try {
+                item.media = await youtube.direct(item.media as YoutubeVideo); 
+                playback.setMedia(item);
+            } catch (e) {
+                sendAll('play', { item });
+            }
+        } else {
+            sendAll('play', { item });
+        }
+    });
     playback.on('stop', () => sendAll('play', {}));
 
     playback.on('queue', save);

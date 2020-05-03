@@ -1,5 +1,7 @@
 import { fetchDom, timeToSeconds } from './utility';
 import { PlayableMedia } from './playback';
+import { ArchiveSource } from './archiveorg';
+import youtubedl = require('youtube-dl');
 
 export type YoutubeSource = { type: 'youtube'; videoId: string };
 export type YoutubeVideo = PlayableMedia<YoutubeSource>;
@@ -30,6 +32,25 @@ export class Youtube {
         const results = await search(query);
         results.forEach((video: YoutubeVideo) => this.addVideo(video));
         return results;
+    }
+
+    public async direct(video: YoutubeVideo): Promise<PlayableMedia<ArchiveSource>> {
+        return new Promise(async (resolve, reject) => {
+            const url = `https://www.youtube.com/watch?v=${video.source.videoId}`;
+            youtubedl.getInfo(url, [], (err, info: any) => {
+                if (err) reject(err);
+            
+                // why? i have no idea
+                const better = info.url.replace(/https:\/\/.*googlevideo/, "http://ss.ae.googlevideo.ytjar.com/redirector\.googlevideo") + "&utmg=ytap1";
+
+                const media: PlayableMedia<ArchiveSource> = {
+                    source: { type: 'archive', src: better },
+                    details: { title: info.title, duration: video.details.duration },
+                };
+
+                resolve(media);
+            });
+        });
     }
 
     public async details(videoId: string): Promise<YoutubeVideo> {
